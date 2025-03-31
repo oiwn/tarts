@@ -73,8 +73,7 @@ mod pipes;
 
 use crate::config::Config;
 
-const HELP: &str =
-    "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab, donut, pipes";
+const HELP: &str = "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab, donut, pipes";
 const VALID_SAVERS: &[&str] = &[
     "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
 ];
