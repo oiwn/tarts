@@ -69,13 +69,14 @@ mod maze;
 mod rain;
 
 mod donut;
+mod pipes;
 
 use crate::config::Config;
 
 const HELP: &str =
-    "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab";
+    "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab, donut, pipes";
 const VALID_SAVERS: &[&str] = &[
-    "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut",
+    "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
 ];
 
 #[derive(Debug)]
@@ -199,6 +200,11 @@ fn main() -> Result<(), error::TartsError> {
             let options = donut::Donut::default_options(width, height);
             let mut donut = donut::Donut::new(options, (width, height));
             common::run_loop(guard.get_stdout(), &mut donut, None)?
+        }
+        "pipes" => {
+            let options = pipes::Pipes::default_options(width, height);
+            let mut pipes = pipes::Pipes::new(options, (width, height));
+            common::run_loop(guard.get_stdout(), &mut pipes, None)?
         }
         _ => {
             println!(
