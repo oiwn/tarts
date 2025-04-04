@@ -28,6 +28,13 @@ pub struct PipesOptions {
     pub num_lines: usize,
 }
 
+pub struct Pipe {
+    prev_location: (usize, usize),
+    prev_node_type: usize,
+    next_location: (usize, usize),
+    curr_color: style::Color,
+}
+
 pub struct Pipes {
     pub screen_size: (u16, u16),
     options: PipesOptions,
