@@ -24,6 +24,8 @@ pub struct PipesOptions {
     pub turn_probability: f64,
     #[builder(default = "1")]
     pub line_type: usize,
+    #[builder(default = "1")]
+    pub num_lines: usize,
 }
 
 pub struct Pipes {
