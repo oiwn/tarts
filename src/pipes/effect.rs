@@ -33,6 +33,7 @@ pub struct Pipe {
     prev_node_type: usize,
     next_location: (usize, usize),
     curr_color: style::Color,
+    pub rng: rand::prelude::ThreadRng,
 }
 
 pub struct Pipes {
@@ -41,7 +42,6 @@ pub struct Pipes {
     buffer: Buffer,
     pipes_made: bool,
     pub colors: Vec<style::Color>,
-    pub rng: rand::prelude::ThreadRng,
     pipes: Vec<Pipe>,
 }
 
@@ -89,18 +89,25 @@ impl Pipes {
             style::Color::Cyan,
             style::Color::Magenta,
         ];
+        
+        let mut pipes = Vec::with_capacity(options.num_lines);
+        for _ in 0..options.num_lines {
+            pipes.push(Pipe {
+                prev_location: (0, 0),
+                prev_node_type: 0,
+                next_location: (0, 0),
+                curr_color: style::Color::White,
+                rng: rand::rng(),
+            });
+        }
 
         Self {
             screen_size,
             options,
             buffer,
-            pipe_made: false,
-            prev_location: (0, 0),
-            prev_node_type: 0,
-            next_location: (0, 0),
+            pipes_made: false,
             colors,
-            curr_color: style::Color::White,
-            rng: rand::rng(),
+            pipes
         }
     }
 
