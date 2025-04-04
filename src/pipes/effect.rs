@@ -29,10 +29,13 @@ pub struct PipesOptions {
 }
 
 pub struct Pipe {
+    line_type: usize,
+    turn_probability: f64,
     prev_location: (usize, usize),
     prev_node_type: usize,
     next_location: (usize, usize),
     curr_color: style::Color,
+    pub colors: Vec<style::Color>,
     pub rng: rand::prelude::ThreadRng,
 }
 
@@ -41,7 +44,6 @@ pub struct Pipes {
     options: PipesOptions,
     buffer: Buffer,
     pipes_made: bool,
-    pub colors: Vec<style::Color>,
     pipes: Vec<Pipe>,
 }
 
@@ -50,10 +52,10 @@ impl TerminalEffect for Pipes {
         // Clone the previous buffer to work with
         let mut curr_buffer = self.buffer.clone();
 
-        if !self.pipe_made {
-            self.start_new_pipe(&mut curr_buffer);
+        if !self.pipes_made {
+            self.start_new_pipes(&mut curr_buffer);
         } else {
-            self.continue_pipe(&mut curr_buffer);
+            self.continue_pipes(&mut curr_buffer);
         }
 
         let diff = self.buffer.diff(&curr_buffer);
@@ -74,48 +76,12 @@ impl TerminalEffect for Pipes {
     fn reset(&mut self) {
         self.buffer =
             Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
-        self.pipe_made = false;
+        self.pipes_made = false;
     }
 }
 
-impl Pipes {
-    pub fn new(options: PipesOptions, screen_size: (u16, u16)) -> Self {
-        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
-        let colors = vec![
-            style::Color::Red,
-            style::Color::Green,
-            style::Color::Blue,
-            style::Color::Yellow,
-            style::Color::Cyan,
-            style::Color::Magenta,
-        ];
-        
-        let mut pipes = Vec::with_capacity(options.num_lines);
-        for _ in 0..options.num_lines {
-            pipes.push(Pipe {
-                prev_location: (0, 0),
-                prev_node_type: 0,
-                next_location: (0, 0),
-                curr_color: style::Color::White,
-                rng: rand::rng(),
-            });
-        }
-
-        Self {
-            screen_size,
-            options,
-            buffer,
-            pipes_made: false,
-            colors,
-            pipes
-        }
-    }
-
-    // Start a new pipe from a random edge location
-    fn start_new_pipe(&mut self, buffer: &mut Buffer) {
-        let width = self.screen_size.0 as usize;
-        let height = self.screen_size.1 as usize;
-
+impl Pipe {
+    fn start_new_pipe(&mut self, buffer: &mut Buffer, width: usize, height: usize) {
         let edge = self.rng.random_range(0..4);
 
         let (pos, direction) = match edge {
@@ -169,26 +135,23 @@ impl Pipes {
             (pos.0 as i32 + direction.0) as usize,
             (pos.1 as i32 + direction.1) as usize,
         );
-
-        self.pipe_made = true;
     }
 
-    // Continue an existing pipe
-    fn continue_pipe(&mut self, buffer: &mut Buffer) {
-        let width = self.screen_size.0 as usize;
-        let height = self.screen_size.1 as usize;
-
+    fn continue_pipe(
+        &mut self,
+        buffer: &mut Buffer,
+        width: usize,
+        height: usize,
+    ) -> bool {
         // Check if reaches edge
         if self.next_location.0 >= width || self.next_location.1 >= height {
-            // End the current pipe and start a new one
-            self.pipe_made = false;
-            self.start_new_pipe(buffer);
-            return;
+            self.start_new_pipe(buffer, width, height);
+            return true;
         }
 
         let current_dir = self.get_direction();
 
-        let turn = self.rng.random_range(0.0..1.0) < self.options.turn_probability;
+        let turn = self.rng.random_range(0.0..1.0) < self.turn_probability;
 
         let (next_dir, node_type) = if turn {
             self.get_turn_direction_and_node(current_dir)
@@ -221,6 +184,18 @@ impl Pipes {
             (self.next_location.0 as i32 + next_dir.0) as usize,
             (self.next_location.1 as i32 + next_dir.1) as usize,
         );
+        false
+    }
+
+    fn get_line_char(&self, node_type: usize) -> char {
+        // default line_type to 0
+        let line_type = if self.line_type < LINE_CHARS.len() {
+            self.line_type
+        } else {
+            0
+        };
+
+        LINE_CHARS[line_type].get(node_type).copied().unwrap_or('?')
     }
 
     // Get the current direction based on previous node and location
@@ -319,16 +294,63 @@ impl Pipes {
             _ => ((0, 0), 1), // Nope
         }
     }
+}
 
-    fn get_line_char(&self, node_type: usize) -> char {
-        // default line_type to 0
-        let line_type = if self.options.line_type < LINE_CHARS.len() {
-            self.options.line_type
-        } else {
-            0
-        };
+impl Pipes {
+    pub fn new(options: PipesOptions, screen_size: (u16, u16)) -> Self {
+        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+        let colors = vec![
+            style::Color::Red,
+            style::Color::Green,
+            style::Color::Blue,
+            style::Color::Yellow,
+            style::Color::Cyan,
+            style::Color::Magenta,
+        ];
 
-        LINE_CHARS[line_type].get(node_type).copied().unwrap_or('?')
+        let mut pipes = Vec::with_capacity(options.num_lines);
+        for _ in 0..options.num_lines {
+            pipes.push(Pipe {
+                line_type: options.line_type,
+                turn_probability: options.turn_probability,
+                prev_location: (0, 0),
+                prev_node_type: 0,
+                next_location: (0, 0),
+                curr_color: style::Color::White,
+                colors: colors.clone(),
+                rng: rand::rng(),
+            });
+        }
+
+        Self {
+            screen_size,
+            options,
+            buffer,
+            pipes_made: false,
+            pipes,
+        }
+    }
+
+    // Start a new pipe from a random edge location
+    fn start_new_pipes(&mut self, buffer: &mut Buffer) {
+        let width = self.screen_size.0 as usize;
+        let height = self.screen_size.1 as usize;
+
+        for pipe in &mut self.pipes {
+            pipe.start_new_pipe(buffer, width, height);
+        }
+
+        self.pipes_made = true;
+    }
+
+    // Continue an existing pipe
+    fn continue_pipes(&mut self, buffer: &mut Buffer) {
+        let width = self.screen_size.0 as usize;
+        let height = self.screen_size.1 as usize;
+
+        for pipe in &mut self.pipes {
+            pipe.continue_pipe(buffer, width, height);
+        }
     }
 }
 
