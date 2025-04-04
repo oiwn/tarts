@@ -39,13 +39,10 @@ pub struct Pipes {
     pub screen_size: (u16, u16),
     options: PipesOptions,
     buffer: Buffer,
-    pipe_made: bool,
-    prev_location: (usize, usize),
-    prev_node_type: usize,
-    next_location: (usize, usize),
+    pipes_made: bool,
     pub colors: Vec<style::Color>,
-    curr_color: style::Color,
     pub rng: rand::prelude::ThreadRng,
+    pipes: Vec<Pipe>,
 }
 
 impl TerminalEffect for Pipes {
@@ -335,6 +332,7 @@ impl DefaultOptions for Pipes {
         PipesOptionsBuilder::default()
             .turn_probability(0.2)
             .line_type(2usize)
+            .num_lines(3usize)
             .build()
             .unwrap()
     }
