@@ -14,6 +14,14 @@ static LINE_CHARS: LazyLock<Vec<Vec<char>>> = LazyLock::new(|| {
         vec![' ', '┃', '┃', '━', '━', '┏', '┓', '┗', '┛'],
         // Line type 2 - Curved corners
         vec![' ', '│', '│', '─', '─', '╭', '╮', '╰', '╯'],
+        // Line type 3 - Double characters
+        vec![' ', '║', '║', '═', '═', '╔', '╗', '╚', '╝'],
+        // Line type 4 - Block characters
+        vec![' ', '█', '█', '▄', '▄', '▛', '▜', '▙', '▟'],
+        // Line type 5 - Heavy rounded
+        vec![' ', '┇', '┇', '┅', '┅', '┏', '┓', '┗', '┛'],
+        // Line type 6 - Braille patterns
+        vec![' ', '⠿', '⠿', '⠉', '⠉', '⠏', '⠕', '⠧', '⠽'],
     ]
 });
 
@@ -26,6 +34,8 @@ pub struct PipesOptions {
     pub line_type: usize,
     #[builder(default = "1")]
     pub num_lines: usize,
+    #[builder(default = "0.3")]
+    pub pipe_type_change: f64,
 }
 
 pub struct Pipe {
@@ -81,7 +91,17 @@ impl TerminalEffect for Pipes {
 }
 
 impl Pipe {
-    fn start_new_pipe(&mut self, buffer: &mut Buffer, width: usize, height: usize) {
+    fn start_new_pipe(
+        &mut self,
+        buffer: &mut Buffer,
+        width: usize,
+        height: usize,
+        pipe_type_change: f64,
+    ) {
+        if self.rng.random_bool(pipe_type_change) {
+            self.line_type = self.rng.random_range(0..LINE_CHARS.len());
+        }
+
         let edge = self.rng.random_range(0..4);
 
         let (pos, direction) = match edge {
@@ -142,10 +162,11 @@ impl Pipe {
         buffer: &mut Buffer,
         width: usize,
         height: usize,
+        pipe_type_change: f64,
     ) -> bool {
         // Check if reaches edge
         if self.next_location.0 >= width || self.next_location.1 >= height {
-            self.start_new_pipe(buffer, width, height);
+            self.start_new_pipe(buffer, width, height, pipe_type_change);
             return true;
         }
 
@@ -337,7 +358,12 @@ impl Pipes {
         let height = self.screen_size.1 as usize;
 
         for pipe in &mut self.pipes {
-            pipe.start_new_pipe(buffer, width, height);
+            pipe.start_new_pipe(
+                buffer,
+                width,
+                height,
+                self.options.pipe_type_change,
+            );
         }
 
         self.pipes_made = true;
@@ -349,7 +375,12 @@ impl Pipes {
         let height = self.screen_size.1 as usize;
 
         for pipe in &mut self.pipes {
-            pipe.continue_pipe(buffer, width, height);
+            pipe.continue_pipe(
+                buffer,
+                width,
+                height,
+                self.options.pipe_type_change,
+            );
         }
     }
 }
@@ -361,7 +392,7 @@ impl DefaultOptions for Pipes {
         PipesOptionsBuilder::default()
             .turn_probability(0.2)
             .line_type(2usize)
-            .num_lines(3usize)
+            .num_lines(5usize)
             .build()
             .unwrap()
     }

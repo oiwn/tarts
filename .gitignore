@@ -8,5 +8,6 @@ Cargo.lock
 tmp/
 tags
 .code
+code.txt
 .DS_Store
 .amc.toml

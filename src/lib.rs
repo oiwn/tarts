@@ -10,4 +10,5 @@ pub mod donut;
 pub mod error;
 pub mod life;
 pub mod maze;
+pub mod pipes;
 pub mod rain;
