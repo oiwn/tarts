@@ -69,13 +69,13 @@ mod maze;
 mod rain;
 
 mod donut;
+mod pipes;
 
 use crate::config::Config;
 
-const HELP: &str =
-    "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab";
+const HELP: &str = "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab, donut, pipes";
 const VALID_SAVERS: &[&str] = &[
-    "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut",
+    "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
 ];
 
 #[derive(Debug)]
@@ -149,63 +149,73 @@ fn main() -> Result<(), error::TartsError> {
         return Ok(());
     }
 
-    let mut guard = TerminalGuard::new()?;
-    let (width, height) = terminal::size()?;
+    let fps = {
+        let mut guard = TerminalGuard::new()?;
+        let (width, height) = terminal::size()?;
 
-    let fps = match args.screen_saver.as_str() {
-        "matrix" => {
-            // let options = config.get_matrix_options((width, height));
-            let options =
-                rain::digital_rain::DigitalRain::default_options(width, height);
-            let mut digital_rain =
-                rain::digital_rain::DigitalRain::new(options, (width, height));
-            common::run_loop(guard.get_stdout(), &mut digital_rain, None)?
-        }
-        "life" => {
-            // let options = config.get_life_options((width, height));
-            let options = life::ConwayLife::default_options(width, height);
-            let mut conway_life = life::ConwayLife::new(options, (width, height));
-            common::run_loop(guard.get_stdout(), &mut conway_life, None)?
-        }
-        "maze" => {
-            // let options = config.get_maze_options((width, height));
-            let options = maze::Maze::default_options(width, height);
-            let mut maze = maze::Maze::new(options, (width, height));
-            common::run_loop(guard.get_stdout(), &mut maze, None)?
-        }
-        "boids" => {
-            // let options = config.get_boids_options((width, height));
-            let options = boids::Boids::default_options(width, height);
-            let mut boids = boids::Boids::new(options);
-            common::run_loop(guard.get_stdout(), &mut boids, None)?
-        }
-        "blank" => {
-            let options = blank::BlankOptionsBuilder::default().build().unwrap();
-            let mut check = blank::Blank::new(options, (width, height));
-            common::run_loop(guard.get_stdout(), &mut check, None)?
-        }
-        "cube" => {
-            // let options = config.get_cube_options();
-            let options = cube::effect::Cube::default_options(width, height);
-            let mut cube = cube::Cube::new(options, (width, height));
-            common::run_loop(guard.get_stdout(), &mut cube, None)?
-        }
-        "crab" => {
-            let options = crab::Crab::default_options(width, height);
-            let mut crab = crab::Crab::new(options, (width, height));
-            common::run_loop(guard.get_stdout(), &mut crab, None)?
-        }
-        "donut" => {
-            let options = donut::Donut::default_options(width, height);
-            let mut donut = donut::Donut::new(options, (width, height));
-            common::run_loop(guard.get_stdout(), &mut donut, None)?
-        }
-        _ => {
-            println!(
-                "Pick screensaver: [matrix, life, maze, boids, cube, crab, donut]"
-            );
-            0.0
-        }
+        let fps = match args.screen_saver.as_str() {
+            "matrix" => {
+                // let options = config.get_matrix_options((width, height));
+                let options =
+                    rain::digital_rain::DigitalRain::default_options(width, height);
+                let mut digital_rain =
+                    rain::digital_rain::DigitalRain::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut digital_rain, None)?
+            }
+            "life" => {
+                // let options = config.get_life_options((width, height));
+                let options = life::ConwayLife::default_options(width, height);
+                let mut conway_life =
+                    life::ConwayLife::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut conway_life, None)?
+            }
+            "maze" => {
+                // let options = config.get_maze_options((width, height));
+                let options = maze::Maze::default_options(width, height);
+                let mut maze = maze::Maze::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut maze, None)?
+            }
+            "boids" => {
+                // let options = config.get_boids_options((width, height));
+                let options = boids::Boids::default_options(width, height);
+                let mut boids = boids::Boids::new(options);
+                common::run_loop(guard.get_stdout(), &mut boids, None)?
+            }
+            "blank" => {
+                let options =
+                    blank::BlankOptionsBuilder::default().build().unwrap();
+                let mut check = blank::Blank::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut check, None)?
+            }
+            "cube" => {
+                // let options = config.get_cube_options();
+                let options = cube::effect::Cube::default_options(width, height);
+                let mut cube = cube::Cube::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut cube, None)?
+            }
+            "crab" => {
+                let options = crab::Crab::default_options(width, height);
+                let mut crab = crab::Crab::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut crab, None)?
+            }
+            "donut" => {
+                let options = donut::Donut::default_options(width, height);
+                let mut donut = donut::Donut::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut donut, None)?
+            }
+            "pipes" => {
+                let options = pipes::Pipes::default_options(width, height);
+                let mut pipes = pipes::Pipes::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut pipes, None)?
+            }
+            _ => {
+                println!(
+                    "Pick screensaver: [matrix, life, maze, boids, cube, crab, donut]"
+                );
+                0.0
+            }
+        };
+        fps
     };
 
     println!("Frames per second: {}", fps);
