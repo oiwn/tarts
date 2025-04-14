@@ -1,0 +1,59 @@
+name: Publish to crates.io
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.toml'
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.compare_versions.outputs.should_publish }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for comparing versions
+
+    - name: Compare versions
+      id: compare_versions
+      run: |
+        # Get the current version from Cargo.toml
+        CURRENT_VERSION=$(grep '^version = ' Cargo.toml | cut -d '"' -f 2)
+        echo "Current version: $CURRENT_VERSION"
+
+        # Get the previous version from the last commit
+        git checkout HEAD~1
+        PREVIOUS_VERSION=$(grep '^version = ' Cargo.toml | cut -d '"' -f 2)
+        echo "Previous version: $PREVIOUS_VERSION"
+
+        # Compare versions
+        if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+          echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+          echo "should_publish=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "Version unchanged"
+          echo "should_publish=false" >> "$GITHUB_OUTPUT"
+        fi
+
+  publish:
+    needs: check-version
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Check if package is publishable
+      run: cargo publish --dry-run
+
+    - name: Publish to crates.io
+      run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
+
+
