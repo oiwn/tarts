@@ -63,21 +63,21 @@ mod common;
 mod config;
 mod crab;
 mod cube;
+mod donut;
 mod error;
+mod fire;
 mod life;
 mod maze;
-mod rain;
-
-mod donut;
 mod pipes;
 mod plasma;
+mod rain;
 
 use crate::config::Config;
 
-const HELP: &str = "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab, donut, pipes, plasma";
+const HELP: &str = "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab, donut, pipes, plasma, fire";
 const VALID_SAVERS: &[&str] = &[
     "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
-    "plasma",
+    "plasma", "fire",
 ];
 
 #[derive(Debug)]
@@ -115,7 +115,7 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        // Ignore errors during drop - we're doing best effort cleanup
+        // Ignore errors during drop - we'''re doing best effort cleanup
         let _ = execute!(
             self.stdout,
             cursor::Show,
@@ -214,6 +214,11 @@ fn main() -> Result<(), error::TartsError> {
                 let options = plasma::Plasma::default_options(width, height);
                 let mut plasma = plasma::Plasma::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut plasma, None)?
+            }
+            "fire" => {
+                let options = fire::Fire::default_options(width, height);
+                let mut fire = fire::Fire::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut fire, None)?
             }
             _ => {
                 println!(

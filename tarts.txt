@@ -1,0 +1,4966 @@
+This is a concatenated source code file containing multiple source files from a project.
+Each file section begins and ends with a delimiter line "---".
+After the opening delimiter, there is metadata about the file:
+- File: relative path to the source file
+- Last commit: Git commit hash of the last change
+- Last update: Unix timestamp of the last change
+
+Please analyze the code with these aspects in mind:
+1. The relationship and dependencies between files
+2. The overall architecture and design patterns used
+3. Any potential improvements or issues you notice
+4. Consider the context of changes based on the Git metadata
+
+The code sections follow below:
+---
+File: benches/rain_benchmarks.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::{hint::black_box, time::Duration};
+use tarts::{
+    common::{self, TerminalEffect},
+    rain::{digital_rain, rain_drop},
+};
+
+fn get_sane_options() -> digital_rain::DigitalRainOptions {
+    digital_rain::DigitalRainOptionsBuilder::default()
+        .drops_range((10, 20))
+        .speed_range((2, 16))
+        .build()
+        .unwrap()
+}
+
+fn run_loop_benchmark(_c: &mut Criterion) {
+    let mut cc = Criterion::default()
+        .warm_up_time(std::time::Duration::from_secs(3)) // 3 seconds warm-up time
+        .measurement_time(std::time::Duration::from_secs(20)) // 10 seconds measurement time
+        .sample_size(100);
+
+    cc.bench_function("benchmark_run_loop", |b| {
+        let mut stdout = Vec::new();
+        let options = get_sane_options();
+        let mut rain = digital_rain::DigitalRain::new(options, (80, 40));
+
+        b.iter(|| {
+            let _ = common::run_loop(black_box(&mut stdout), &mut rain, Some(3));
+        })
+    });
+}
+
+fn vertical_worm_benchmark(c: &mut Criterion) {
+    let options = get_sane_options();
+    c.bench_function("benchmark_raindrop_new_1000", |b| {
+        b.iter(|| {
+            let mut rng = rand::rng();
+            for index in 1..=1000 {
+                rain_drop::RainDrop::new((80, 40), &options, index, &mut rng);
+            }
+        })
+    });
+
+    c.bench_function("benchmark_raindrop_update_1000", |b| {
+        let mut rng = rand::rng();
+        let options = get_sane_options();
+        let mut drops: Vec<rain_drop::RainDrop> = vec![];
+        for index in 1..=1000 {
+            drops.push(rain_drop::RainDrop::new(
+                (80, 40),
+                &options,
+                index,
+                &mut rng,
+            ));
+        }
+        b.iter(|| {
+            for drop in drops.iter_mut() {
+                drop.update(
+                    (80, 40),
+                    &options,
+                    Duration::from_millis(50),
+                    &mut rng,
+                );
+            }
+        })
+    });
+}
+
+fn digital_rain_benchmark(c: &mut Criterion) {
+    c.bench_function("benchmark_rain_new", |b| {
+        b.iter(|| {
+            let options = get_sane_options();
+            let _ = digital_rain::DigitalRain::new(options, (80, 40));
+        })
+    });
+
+    c.bench_function("benchmark_rain_update", |b| {
+        b.iter(|| {
+            let options = get_sane_options();
+            let mut rain = digital_rain::DigitalRain::new(options, (80, 40));
+            for _ in 1..=10 {
+                rain.update();
+            }
+        })
+    });
+}
+
+criterion_group!(
+    benches,
+    run_loop_benchmark,
+    vertical_worm_benchmark,
+    digital_rain_benchmark
+);
+criterion_main!(benches);
+
+
+---
+File: src/plasma/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+use crossterm::style;
+use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
+use std::f64::consts::PI;
+
+#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
+#[builder(public, setter(into))]
+pub struct PlasmaOptions {
+    #[builder(default = "1.0")]
+    pub time_scale: f64,
+    #[builder(default = "1.0")]
+    pub spatial_scale: f64,
+    #[builder(default = "100.0")]
+    pub color_speed: f64,
+}
+
+pub struct Plasma {
+    pub screen_size: (u16, u16),
+    options: PlasmaOptions,
+    buffer: Buffer,
+    time: f64,
+    palette: Vec<style::Color>,
+}
+
+impl TerminalEffect for Plasma {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        // Clone the previous buffer to work with
+        let mut curr_buffer = self.buffer.clone();
+
+        // Update the plasma field directly (no LUT)
+        self.update_plasma(&mut curr_buffer);
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+
+        diff
+    }
+
+    fn update(&mut self) {
+        // Advance the time for the animation
+        self.time += self.options.time_scale * 0.1;
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height);
+        self.reset();
+    }
+
+    fn reset(&mut self) {
+        self.buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+        self.time = 0.0;
+    }
+}
+
+impl Plasma {
+    pub fn new(options: PlasmaOptions, screen_size: (u16, u16)) -> Self {
+        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+        let time = 0.0;
+
+        // Generate color palette
+        let palette = Self::generate_palette();
+
+        Self {
+            screen_size,
+            options,
+            buffer,
+            time,
+            palette,
+        }
+    }
+
+    /// Generate a color palette of 256 colors
+    fn generate_palette() -> Vec<style::Color> {
+        let mut palette = Vec::with_capacity(256);
+
+        for i in 0..256 {
+            let i_f64 = i as f64;
+            let r = 128.0 + 128.0 * (PI * i_f64 / 32.0).sin();
+            let g = 128.0 + 128.0 * (PI * i_f64 / 64.0).sin();
+            let b = 128.0 + 128.0 * (PI * i_f64 / 128.0).sin();
+
+            palette.push(style::Color::Rgb {
+                r: Self::clamp(r as u8, 0, 255),
+                g: Self::clamp(g as u8, 0, 255),
+                b: Self::clamp(b as u8, 0, 255),
+            });
+        }
+
+        palette
+    }
+
+    /// Clamp a value between min and max
+    fn clamp(val: u8, min: u8, max: u8) -> u8 {
+        if val < min {
+            min
+        } else if val > max {
+            max
+        } else {
+            val
+        }
+    }
+
+    /// Calculate plasma value using the [AWK script formula](https://rosettacode.org/wiki/Plasma_effect#AWK)
+    fn calc_plasma_value(&self, x: f64, y: f64, now: f64, w: f64, h: f64) -> u8 {
+        let scale = self.options.spatial_scale;
+
+        let value = (128.0
+            + (128.0 * ((x / 8.0) * scale - (now / 2.0).cos()).sin())
+            + 128.0
+            + (128.0 * ((y / 16.0) * scale - now.sin() * 2.0).sin())
+            + 128.0
+            + (128.0
+                * (((x - w / 2.0).powi(2) + (y - h / 2.0).powi(2)).sqrt() / 4.0
+                    * scale)
+                    .sin())
+            + 128.0
+            + (128.0
+                * (((x.powi(2) + y.powi(2)).sqrt() / 4.0) * scale
+                    - (now / 4.0).sin())
+                .sin()))
+            / 4.0;
+
+        value as u8
+    }
+
+    /// Update the plasma field in the buffer
+    fn update_plasma(&mut self, buffer: &mut Buffer) {
+        let width = self.screen_size.0 as usize;
+        let height = self.screen_size.1 as usize;
+        let w = width as f64;
+        let h = height as f64;
+        let now = self.time;
+
+        for y in 0..height {
+            for x in 0..width {
+                // For each cell, calculate two plasma values (upper and lower half)
+                let y_f64 = (y * 2) as f64;
+                let x_f64 = x as f64;
+
+                // Calculate plasma values
+                let plasma = self.calc_plasma_value(x_f64, y_f64, now, w, h * 2.0);
+
+                // Get color indices with time component
+                let color_idx = ((plasma as f64) + now * self.options.color_speed)
+                    as usize
+                    % 256;
+
+                let cell_color = self.palette[color_idx];
+
+                let cell = Cell::new('*', cell_color, style::Attribute::Bold);
+
+                buffer.set(x, y, cell);
+            }
+        }
+    }
+}
+
+impl DefaultOptions for Plasma {
+    type Options = PlasmaOptions;
+
+    fn default_options(_width: u16, _height: u16) -> Self::Options {
+        PlasmaOptionsBuilder::default()
+            .time_scale(1.0)
+            .spatial_scale(1.0)
+            .color_speed(150.0)
+            .build()
+            .unwrap()
+    }
+}
+
+
+---
+File: src/plasma/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+mod effect;
+#[allow(unused)]
+pub use effect::{Plasma, PlasmaOptions, PlasmaOptionsBuilder};
+
+
+---
+File: src/crab/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+use crossterm::style;
+use derive_builder::Builder;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+
+// Direction the crab is facing
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Direction {
+    Left,
+    Right,
+}
+
+// Selected animation frames for the crab
+// Each frame has (or no?) the same width/height for consistent rendering
+static CRAB_FRAMES: LazyLock<Vec<&str>> = LazyLock::new(|| {
+    vec![
+        // Frame 0: Standard pose facing right
+        r#"    _~^~^~_
+\) /  o o  \ (/
+  '_   ¬   _'
+  \ '-----' /"#,
+        // Frame 1: Walking pose facing right
+        r#"    _~^~^~_
+\) /  o o  \ (/
+ '-,   -  _'\
+  | '----' "#,
+        // Frame 2: Special pose (claws open) facing right
+        r#"    _~^~^~_
+\/ /  o o  \ \/
+  '_   u   _'
+  \ '-----' /"#,
+        // Frame 3: Standard pose facing left (mirrored)
+        r#"    _~^~^~_
+(\ /  o o  \ ()
+  '_   ¬   _'
+  / '-----' \"#,
+        // Frame 4: Walking pose facing left (mirrored)
+        r#"    _~^~^~_
+(\ /  o o  \ ()
+ /'_  -   ,-'
+    '----' |"#,
+        // Frame 5: Special pose (claws open) facing left
+        r#"    _~^~^~_
+\/ /  o o  \ \/
+  '_   u   _'
+  / '-----' \"#,
+    ]
+});
+
+// Individual crab entity
+#[derive(Clone)]
+struct CrabEntity {
+    position: (f32, f32), // Floating point for smooth movement
+    velocity: (f32, f32), // Direction and speed
+    direction: Direction, // Facing left or right
+    current_frame: usize, // Current animation frame
+    animation_timer: f32, // Timer for animation
+    special_timer: f32,   // Timer for special animations
+    is_special: bool,     // Whether doing special animation
+    color: style::Color,  // Crab color
+    frame_width: usize,   // Cached frame width
+    frame_height: usize,  // Cached frame height
+}
+
+#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
+#[builder(public, setter(into))]
+pub struct CrabOptions {
+    #[builder(default = "5")]
+    pub crab_count: u16,
+
+    #[builder(default = "0.2")]
+    pub animation_speed: f32,
+
+    #[builder(default = "0.05")]
+    pub clap_chance: f32, // Random chance for special animation
+
+    #[builder(default = "1.0")]
+    pub movement_speed: f32,
+}
+
+pub struct Crab {
+    pub screen_size: (u16, u16),
+    options: CrabOptions,
+    buffer: Buffer,
+    crabs: Vec<CrabEntity>,
+    rng: rand::prelude::ThreadRng,
+    frame_timer: f32,
+}
+
+impl CrabEntity {
+    fn new(
+        position: (f32, f32),
+        velocity: (f32, f32),
+        rng: &mut rand::prelude::ThreadRng,
+    ) -> Self {
+        // Determine initial direction based on velocity
+        let direction = if velocity.0 >= 0.0 {
+            Direction::Right
+        } else {
+            Direction::Left
+        };
+
+        // Random color with predominantly red tint for crabs
+        let color = style::Color::Rgb {
+            r: rng.random_range(200..=255),
+            g: rng.random_range(50..=150),
+            b: rng.random_range(50..=100),
+        };
+
+        // Calculate frame dimensions from the first frame
+        let frame_lines: Vec<&str> = CRAB_FRAMES[0].lines().collect();
+        let frame_height = frame_lines.len();
+        let frame_width =
+            frame_lines.iter().map(|line| line.len()).max().unwrap_or(0);
+
+        Self {
+            position,
+            velocity,
+            direction,
+            current_frame: 0,
+            animation_timer: 0.0,
+            special_timer: 0.0,
+            is_special: false,
+            color,
+            frame_width,
+            frame_height,
+        }
+    }
+
+    // Get the appropriate frame for the crab's current state
+    fn get_frame_index(&self) -> usize {
+        if self.is_special {
+            // Special animation (open claws)
+            if self.direction == Direction::Right {
+                2
+            } else {
+                5
+            }
+        } else if self.direction == Direction::Right {
+            // Walking animation right
+            self.current_frame % 2 // Alternate between frames 0 and 1
+        } else {
+            // Walking animation left
+            3 + (self.current_frame % 2) // Alternate between frames 3 and 4
+        }
+    }
+
+    // Get the lines of the current frame for rendering
+    fn get_frame_lines(&self) -> Vec<String> {
+        let frame_index = self.get_frame_index();
+        CRAB_FRAMES[frame_index]
+            .lines()
+            .map(|line| line.to_string())
+            .collect()
+    }
+
+    // Update the crab's position and animation state
+    fn update(
+        &mut self,
+        dt: f32,
+        screen_size: (u16, u16),
+        animation_speed: f32,
+        movement_speed: f32,
+        clap_chance: f32,
+        rng: &mut rand::prelude::ThreadRng,
+    ) {
+        // Update position based on velocity
+        self.position.0 += self.velocity.0 * movement_speed * dt;
+        self.position.1 += self.velocity.1 * movement_speed * dt;
+
+        // Screen boundary collision detection
+        let width = screen_size.0 as f32;
+        let height = screen_size.1 as f32;
+
+        // Detect collision with screen edges and reverse direction
+        if self.position.0 < 0.0 {
+            self.position.0 = 0.0;
+            self.velocity.0 = rng.random_range(0.5..1.5);
+            self.direction = Direction::Right;
+        } else if self.position.0 + self.frame_width as f32 > width {
+            self.position.0 = width - self.frame_width as f32;
+            self.velocity.0 = rng.random_range(-1.5..-0.5);
+            self.direction = Direction::Left;
+        }
+
+        if self.position.1 < 0.0 {
+            self.position.1 = 0.0;
+            self.velocity.1 = rng.random_range(0.2..0.8);
+        } else if self.position.1 + self.frame_height as f32 > height {
+            self.position.1 = height - self.frame_height as f32;
+            self.velocity.1 = rng.random_range(-0.8..-0.2);
+        }
+
+        // Update direction based on velocity
+        if self.velocity.0 > 0.0 {
+            self.direction = Direction::Right;
+        } else if self.velocity.0 < 0.0 {
+            self.direction = Direction::Left;
+        }
+
+        // Update animation timer
+        let is_moving = self.velocity.0.abs() > 0.1 || self.velocity.1.abs() > 0.1;
+        if is_moving {
+            self.animation_timer += dt;
+            if self.animation_timer >= animation_speed {
+                self.animation_timer = 0.0;
+                self.current_frame = (self.current_frame + 1) % 2;
+            }
+        } else {
+            // Use standing frame when not moving
+            self.animation_timer = 0.0;
+            self.current_frame = 0;
+        }
+
+        // Update special animation
+        if self.is_special {
+            self.special_timer -= dt;
+            if self.special_timer <= 0.0 {
+                self.is_special = false;
+            }
+        } else if rng.random::<f32>() < clap_chance * dt {
+            // Random chance to trigger special animation
+            self.is_special = true;
+            self.special_timer = animation_speed * 5.0; // Duration of special animation
+        }
+
+        // Occasionally add slight randomness to movement
+        if rng.random::<f32>() < 0.02 {
+            self.velocity.0 += rng.random_range(-0.2..0.2);
+            self.velocity.1 += rng.random_range(-0.1..0.1);
+
+            // Keep velocity in reasonable bounds
+            if self.velocity.0.abs() > 2.0 {
+                self.velocity.0 = self.velocity.0.signum() * 1.5;
+            }
+
+            if self.velocity.1.abs() > 1.0 {
+                self.velocity.1 = self.velocity.1.signum() * 0.5;
+            }
+        }
+    }
+}
+
+impl TerminalEffect for Crab {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        let mut curr_buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+
+        // Draw each crab
+        for crab in &self.crabs {
+            let frame_lines = crab.get_frame_lines();
+            let base_x = crab.position.0.round() as usize;
+            let base_y = crab.position.1.round() as usize;
+
+            // Draw each line of the crab frame
+            for (y_offset, line) in frame_lines.iter().enumerate() {
+                let y = base_y + y_offset;
+                if y >= curr_buffer.height {
+                    continue;
+                }
+
+                for (x_offset, ch) in line.chars().enumerate() {
+                    let x = base_x + x_offset;
+                    if x >= curr_buffer.width || ch == ' ' {
+                        continue;
+                    }
+
+                    // Set the character in the buffer
+                    curr_buffer.set(
+                        x,
+                        y,
+                        Cell::new(ch, crab.color, style::Attribute::Bold),
+                    );
+                }
+            }
+        }
+
+        // Calculate the diff
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
+    }
+
+    fn update(&mut self) {
+        // Use a fixed delta time for smooth animation
+        let dt = 0.033; // ~30 FPS
+
+        // Update frame timer
+        self.frame_timer += dt;
+
+        // Update each crab
+        for crab in &mut self.crabs {
+            crab.update(
+                dt,
+                self.screen_size,
+                self.options.animation_speed,
+                self.options.movement_speed,
+                self.options.clap_chance,
+                &mut self.rng,
+            );
+        }
+
+        // Check for collisions between crabs
+        self.check_crab_collisions();
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height);
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new(self.options.clone(), self.screen_size);
+    }
+}
+
+impl Crab {
+    pub fn new(options: CrabOptions, screen_size: (u16, u16)) -> Self {
+        let mut rng = rand::rng();
+        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+
+        let width = screen_size.0 as f32;
+        let height = screen_size.1 as f32;
+
+        // Create initial crabs with random positions and velocities
+        let mut crabs = Vec::with_capacity(options.crab_count as usize);
+        for _ in 0..options.crab_count {
+            let position = (
+                rng.random_range(0.0..width * 0.8),
+                rng.random_range(0.0..height * 0.8),
+            );
+
+            // Random velocity, but ensure it's not too slow
+            let velocity = (
+                rng.random_range(-1.0f32..1.0f32).signum()
+                    * rng.random_range(0.5..1.5),
+                rng.random_range(-0.5..0.5),
+            );
+
+            crabs.push(CrabEntity::new(position, velocity, &mut rng));
+        }
+
+        // ensure crabs won't start to close to each other
+        let min_distance_squared = 100.0; // Adjust based on crab size
+        let mut i = 0;
+        while i < crabs.len() {
+            let mut repositioned = false;
+
+            for j in 0..i {
+                let dx = crabs[i].position.0 - crabs[j].position.0;
+                let dy = crabs[i].position.1 - crabs[j].position.1;
+                let distance_squared = dx * dx + dy * dy;
+
+                if distance_squared < min_distance_squared {
+                    // Reposition this crab
+                    crabs[i].position.0 = rng.random_range(0.0..width * 0.8);
+                    crabs[i].position.1 = rng.random_range(0.0..height * 0.8);
+                    repositioned = true;
+                    break;
+                }
+            }
+
+            if !repositioned {
+                i += 1; // Only advance if no repositioning was needed
+            }
+        }
+
+        Self {
+            screen_size,
+            options,
+            buffer,
+            crabs,
+            rng,
+            frame_timer: 0.0,
+        }
+    }
+
+    // Check for collisions between crabs and handle them
+    fn check_crab_collisions(&mut self) {
+        let crab_count = self.crabs.len();
+        if crab_count < 2 {
+            return;
+        }
+
+        // Simple collision detection based on proximity
+        for i in 0..crab_count {
+            for j in (i + 1)..crab_count {
+                let dx = self.crabs[i].position.0 - self.crabs[j].position.0;
+                let dy = self.crabs[i].position.1 - self.crabs[j].position.1;
+                let distance_squared = dx * dx + dy * dy;
+
+                // If crabs are close enough, consider it a collision
+                if distance_squared < 36.0 {
+                    // Trigger special animation for both crabs
+                    self.crabs[i].is_special = true;
+                    self.crabs[i].special_timer =
+                        self.options.animation_speed * 5.0;
+
+                    self.crabs[j].is_special = true;
+                    self.crabs[j].special_timer =
+                        self.options.animation_speed * 5.0;
+
+                    // Reverse directions
+                    self.crabs[i].velocity.0 = -self.crabs[i].velocity.0;
+                    self.crabs[j].velocity.0 = -self.crabs[j].velocity.0;
+
+                    // Add some vertical movement to avoid getting stuck
+                    self.crabs[i].velocity.1 += self.rng.random_range(-0.5..0.5);
+                    self.crabs[j].velocity.1 += self.rng.random_range(-0.5..0.5);
+
+                    // Update directions based on new velocities
+                    self.crabs[i].direction = if self.crabs[i].velocity.0 >= 0.0 {
+                        Direction::Right
+                    } else {
+                        Direction::Left
+                    };
+
+                    self.crabs[j].direction = if self.crabs[j].velocity.0 >= 0.0 {
+                        Direction::Right
+                    } else {
+                        Direction::Left
+                    };
+                }
+            }
+        }
+    }
+}
+
+impl DefaultOptions for Crab {
+    type Options = CrabOptions;
+
+    fn default_options(width: u16, height: u16) -> Self::Options {
+        // Adjust crab count based on screen size
+        let screen_area = width as f32 * height as f32;
+        let crab_count = (screen_area / 800.0).clamp(3.0, 15.0) as u16;
+
+        CrabOptionsBuilder::default()
+            .crab_count(crab_count)
+            .animation_speed(0.2)
+            .movement_speed(5.0)
+            .clap_chance(0.05)
+            .build()
+            .unwrap()
+    }
+}
+
+
+---
+File: src/crab/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod effect;
+#[allow(unused)]
+pub use effect::{Crab, CrabOptions, CrabOptionsBuilder};
+
+
+---
+File: src/rain/gradient.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+fn lerp(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 * (1.0 - t) + b as f32 * t).round() as u8
+}
+
+#[derive(Clone, Copy)]
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+pub fn two_step_color_gradient(
+    start_color: Color,
+    middle_color: Color,
+    end_color: Color,
+    middle_point: usize,
+    length: usize,
+) -> Vec<Color> {
+    let mut gradient = vec![];
+    for i in 1..=length {
+        let (r, g, b) = if i <= middle_point {
+            let t = i as f32 / middle_point as f32;
+            (
+                lerp(start_color.r, middle_color.r, t),
+                lerp(start_color.g, middle_color.g, t),
+                lerp(start_color.b, middle_color.b, t),
+            )
+        } else {
+            let t = (i - middle_point) as f32 / middle_point as f32;
+            (
+                lerp(middle_color.r, end_color.r, t),
+                lerp(middle_color.g, end_color.g, t),
+                lerp(middle_color.b, end_color.b, t),
+            )
+        };
+        gradient.push(Color { r, g, b });
+    }
+    gradient
+}
+
+
+---
+File: src/rain/digital_rain.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use super::draw::{pick_color, pick_style};
+use super::gradient;
+use super::rain_drop::RainDrop;
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+
+use derive_builder::Builder;
+use rand::{self, Rng};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+#[derive(Builder, Default, Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct DigitalRainOptions {
+    pub drops_range: (u16, u16),
+    pub speed_range: (u16, u16),
+}
+
+pub struct DigitalRain {
+    pub screen_size: (u16, u16),
+    options: DigitalRainOptions,
+    gradients: Vec<Vec<gradient::Color>>,
+    rain_drops: Vec<RainDrop>,
+    buffer: Buffer,
+    rng: rand::prelude::ThreadRng,
+}
+
+impl TerminalEffect for DigitalRain {
+    /// Calculate difference between current frame and previous frame
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        let mut curr_buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+
+        // fill current buffer
+        // first draw drops with bigger fy
+        Self::fill_buffer(&mut self.rain_drops, &mut curr_buffer, &self.gradients);
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
+    }
+
+    /// Update each rain drop position
+    fn update(&mut self) {
+        for rain_drop in self.rain_drops.iter_mut() {
+            rain_drop.update(
+                self.screen_size,
+                &self.options,
+                Duration::from_millis(50),
+                &mut self.rng,
+            );
+        }
+
+        self.add_one();
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height);
+    }
+
+    fn reset(&mut self) {
+        let new_effect = DigitalRain::new(self.options.clone(), self.screen_size);
+        *self = new_effect;
+    }
+}
+
+/// Process digital rain effect.
+/// Noice that all processing done implying coordinates started from 0, 0
+/// and width / height is actual number of columnts and rows
+impl DigitalRain {
+    // Initialize screensaver
+    pub fn new(options: DigitalRainOptions, screen_size: (u16, u16)) -> Self {
+        let mut rng = rand::rng();
+        let mut rain_drops: Vec<RainDrop> = vec![];
+        let mut buffer: Buffer =
+            Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+        for rain_drop_id in 1..=options.get_min_drops_number() {
+            rain_drops.push(RainDrop::new(
+                screen_size,
+                &options,
+                rain_drop_id as usize,
+                &mut rng,
+            ));
+        }
+
+        // fill gradients
+        let gradients = vec![
+            gradient::two_step_color_gradient(
+                gradient::Color {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                },
+                gradient::Color { r: 0, g: 255, b: 0 },
+                gradient::Color {
+                    r: 10,
+                    g: 10,
+                    b: 10,
+                },
+                4,
+                3 * screen_size.1 as usize / 2,
+            ),
+            gradient::two_step_color_gradient(
+                gradient::Color {
+                    r: 200,
+                    g: 200,
+                    b: 200,
+                },
+                gradient::Color { r: 0, g: 250, b: 0 },
+                gradient::Color {
+                    r: 10,
+                    g: 10,
+                    b: 10,
+                },
+                6,
+                3 * screen_size.1 as usize / 2,
+            ),
+            gradient::two_step_color_gradient(
+                gradient::Color {
+                    r: 200,
+                    g: 200,
+                    b: 200,
+                },
+                gradient::Color { r: 0, g: 200, b: 0 },
+                gradient::Color {
+                    r: 10,
+                    g: 10,
+                    b: 10,
+                },
+                screen_size.1 as usize / 2,
+                3 * screen_size.1 as usize / 2,
+            ),
+        ];
+
+        Self::fill_buffer(&mut rain_drops, &mut buffer, &gradients);
+
+        Self {
+            screen_size,
+            options,
+            gradients,
+            rain_drops,
+            buffer,
+            rng,
+        }
+    }
+
+    pub fn fill_buffer(
+        rain_drops: &mut [RainDrop],
+        buffer: &mut Buffer,
+        gradients: &[Vec<gradient::Color>],
+    ) {
+        rain_drops.sort_by(|a, b| a.speed.partial_cmp(&b.speed).unwrap());
+        for rain_drop in rain_drops.iter().rev() {
+            let points = rain_drop.to_points_vec();
+            for (index, (x, y, character)) in points.iter().enumerate() {
+                let (width, height) = buffer.get_size();
+                if *x < width as u16 && *y < height as u16 {
+                    buffer.set(
+                        *x as usize,
+                        *y as usize,
+                        Cell::new(
+                            *character,
+                            pick_color(&rain_drop.style, index, gradients),
+                            pick_style(&rain_drop.style, index),
+                        ),
+                    );
+                };
+            }
+        }
+    }
+
+    /// Add one more worm with decent chance
+    pub fn add_one(&mut self) {
+        if self.rain_drops.len() >= self.options.get_max_drops_number() as usize {
+            return;
+        };
+        let mut rng = rand::rng();
+        if rng.random_range(0.0..=1.0) <= 0.3 {
+            self.rain_drops.push(RainDrop::new(
+                self.screen_size,
+                &self.options,
+                self.rain_drops.len() + 1,
+                &mut rng,
+            ));
+        };
+    }
+}
+
+impl DigitalRainOptions {
+    #[inline]
+    pub fn get_min_drops_number(&self) -> u16 {
+        self.drops_range.0
+    }
+
+    #[inline]
+    pub fn get_max_drops_number(&self) -> u16 {
+        self.drops_range.1
+    }
+
+    #[inline]
+    pub fn get_min_speed(&self) -> u16 {
+        self.speed_range.0
+    }
+
+    #[inline]
+    pub fn get_max_speed(&self) -> u16 {
+        self.speed_range.1
+    }
+}
+
+impl DefaultOptions for DigitalRain {
+    type Options = DigitalRainOptions;
+
+    fn default_options(width: u16, height: u16) -> Self::Options {
+        let drops_range = {
+            let min_drops = (width * height) / 160; // Approximately 0.6% of screen space
+            let max_drops = (width * height) / 80; // Approximately 1.2% of screen space
+            (min_drops.max(10), max_drops.max(20)) // Ensure minimum values
+        };
+
+        let speed_range = {
+            let min_speed = (height / 20).max(2); // Faster for larger screens
+            let max_speed = (height / 10).max(16); // But not too fast
+            (min_speed, max_speed)
+        };
+
+        DigitalRainOptionsBuilder::default()
+            .drops_range(drops_range)
+            .speed_range(speed_range)
+            .build()
+            .unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn get_sane_default_options() -> DigitalRainOptions {
+        DigitalRainOptionsBuilder::default()
+            .drops_range((20, 30))
+            .speed_range((10, 20))
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn create_new() {
+        let foo = DigitalRain::new(get_sane_default_options(), (100, 100));
+        assert_eq!(foo.rain_drops.len(), 20);
+    }
+
+    #[test]
+    fn no_diff() {
+        let mut foo = DigitalRain::new(get_sane_default_options(), (100, 100));
+        let q = foo.get_diff();
+        assert!(q.is_empty());
+    }
+
+    #[test]
+    fn same_diff_and_update() {
+        let mut foo = DigitalRain::new(get_sane_default_options(), (100, 100));
+        foo.update();
+        let q = foo.get_diff();
+        assert!(!q.is_empty());
+    }
+}
+
+
+---
+File: src/rain/rain_drop.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+// use super::rain_options::DigitalRainOptions;
+use crate::rain::digital_rain::DigitalRainOptions;
+use rand::{
+    self, Rng,
+    distr::{Distribution, StandardUniform},
+    seq::IndexedRandom,
+};
+use std::sync::LazyLock;
+use std::{collections::HashMap, time::Duration};
+
+/// Characters in form of hashmap with label as key
+/// Note that some characters are wide unicode and they will broke
+/// screen in strange way.
+static CHARACTERS_MAP: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    let mut m = HashMap::new();
+    m.insert("digits", "012345789");
+    // m.insert("punctuation", r#":・."=*+-<>"#); // wide character there
+    m.insert("punctuation", r#":."=*+-<>"#);
+    // m.insert("kanji", "日"); // wide character there
+    m.insert("katakana", "ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍ");
+    m.insert("other", "¦çﾘｸ");
+    m
+});
+
+/// Characters used to form kinda-canonical matrix effect
+static CHARACTERS: LazyLock<Vec<char>> = LazyLock::new(|| {
+    let mut v = Vec::new();
+    for (_, chars) in CHARACTERS_MAP.iter() {
+        v.append(&mut chars.chars().collect());
+    }
+    v
+});
+
+pub enum RainDropStyle {
+    Front,
+    Middle,
+    Back,
+    Fading,
+    Gradient,
+}
+
+pub struct RainDrop {
+    pub _drop_id: usize,
+    pub body: Vec<char>,
+    pub style: RainDropStyle,
+    pub fx: u16,
+    pub fy: f32,
+    pub max_length: usize,
+    pub speed: u16,
+}
+
+impl Distribution<RainDropStyle> for StandardUniform {
+    /// Choose from range
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> RainDropStyle {
+        match rng.random_range(1..=100) {
+            1..=10 => RainDropStyle::Front,
+            11..=20 => RainDropStyle::Middle,
+            21..=40 => RainDropStyle::Back,
+            41..=50 => RainDropStyle::Fading,
+            _ => RainDropStyle::Gradient,
+        }
+    }
+}
+
+/// Set of operations to make drain drop moving and growing
+impl RainDrop {
+    /// Create new rain drop with sane random defaults
+    pub fn new(
+        screen_size: (u16, u16),
+        options: &DigitalRainOptions,
+        drop_id: usize,
+        rng: &mut rand::prelude::ThreadRng,
+    ) -> Self {
+        // pick random first character
+        let style: RainDropStyle = rand::random();
+        let fx: u16 = rng.random_range(0..screen_size.0);
+        let fy: f32 = rng.random_range(0..screen_size.1 / 4) as f32;
+        let max_length: usize =
+            rng.random_range(4..=(2 * screen_size.1 / 3)) as usize;
+
+        let speed: u16 =
+            rng.random_range(options.get_min_speed()..=options.get_max_speed());
+
+        let init_length = rng.random_range(1..max_length / 2);
+        let mut body: Vec<char> = vec![*CHARACTERS.choose(rng).unwrap()];
+        for _ in 1..init_length {
+            body.push(*CHARACTERS.choose(rng).unwrap());
+        }
+
+        Self::from_values(drop_id, body, style, fx, fy, max_length, speed)
+    }
+
+    /// Create new worm from values
+    #[inline(always)]
+    pub fn from_values(
+        _drop_id: usize,
+        body: Vec<char>,
+        style: RainDropStyle,
+        fx: u16,
+        fy: f32,
+        max_length: usize,
+        speed: u16,
+    ) -> Self {
+        Self {
+            _drop_id,
+            body,
+            style,
+            fx,
+            fy,
+            max_length,
+            speed,
+        }
+    }
+
+    /// Convert float into screen coordinates
+    #[inline]
+    pub fn to_point(&self) -> (u16, u16) {
+        let x = self.fx;
+        let y = self.fy.round() as u16;
+        (x, y)
+    }
+
+    /// Receive vector of coordinates of RainDrop body
+    pub fn to_points_vec(&self) -> Vec<(u16, u16, char)> {
+        let mut points = vec![];
+        let (head_x, head_y) = self.to_point();
+        for (index, character) in self.body.iter().enumerate() {
+            let yy = head_y as i16 - index as i16;
+            if yy >= 0 {
+                points.push((head_x, yy as u16, *character));
+            } else {
+                break;
+            };
+        }
+        points
+    }
+
+    /// Reset worm to the sane defaults
+    fn reset(
+        &mut self,
+        screen_size: (u16, u16),
+        options: &DigitalRainOptions,
+        rng: &mut rand::prelude::ThreadRng,
+    ) {
+        self.body.clear();
+        self.body.insert(0, *CHARACTERS.choose(rng).unwrap());
+        self.style = rand::random();
+        self.fy = 0.0;
+        self.fx = rng.random_range(0..screen_size.0);
+        self.speed =
+            rng.random_range(options.get_min_speed()..=options.get_max_speed());
+        self.max_length =
+            rng.random_range(screen_size.1 / 4 + 1..=(screen_size.1 / 2)) as usize;
+    }
+
+    /// Grow condition
+    fn grow_condition(&self) -> bool {
+        self.speed > 8
+    }
+
+    /// Grow up matrix worm characters array
+    fn grow(&mut self, head_y: u16, rng: &mut rand::prelude::ThreadRng) {
+        if self.body.len() >= self.max_length {
+            self.body.truncate(self.max_length);
+            return;
+        };
+
+        match self.grow_condition() {
+            true => {
+                // grow drop body to the number of cells passed during update
+                let delta: i16 = head_y as i16 - self.fy.round() as i16;
+                if delta > 0 {
+                    for _ in 0..delta as usize {
+                        self.body.insert(0, *CHARACTERS.choose(rng).unwrap());
+                    }
+                };
+            }
+            false => {
+                // grow only to one character if position changed
+                let delta: i16 = head_y as i16 - self.fy.round() as i16;
+                if delta > 0 {
+                    self.body.insert(0, *CHARACTERS.choose(rng).unwrap());
+                };
+            }
+        };
+
+        self.body.truncate(self.max_length);
+    }
+
+    /// Update rain drops to change position/grow etc
+    /// there can be 4 cases:
+    /// rain drop vector not yet fully come from top
+    /// rain drop vector somewhere in the middle of the scren
+    /// rain drop vector reach bottom and need to fade out
+    /// raid drop vector tail out of screen rect visibility
+    ///
+    /// Note that rain drop coordiantes can be outside bounds defined
+    /// by screen width and height, this should be handled during draw process
+    pub fn update(
+        &mut self,
+        screen_size: (u16, u16),
+        options: &DigitalRainOptions,
+        dt: Duration,
+        rng: &mut rand::prelude::ThreadRng,
+    ) {
+        // NOTE: looks like guard, but why i even need it here?
+        if self.body.is_empty() {
+            self.reset(screen_size, options, rng);
+            return;
+        }
+
+        // new fy coordinate
+        let fy = self.fy + (self.speed as f32 * dt.as_millis() as f32) / 1000.0;
+
+        // calculate head and tail y coordinate
+        let head_y = fy.round() as u16;
+        let tail_y = fy.round() as i16 - self.body.len() as i16;
+        let height = screen_size.1;
+
+        if tail_y <= 0 {
+            // not fully come out from top
+            self.grow(head_y, rng);
+            self.fy = fy;
+            return;
+        };
+
+        if (head_y <= height) && (tail_y > 0) {
+            // somewhere in the middle
+            self.grow(head_y, rng);
+            self.fy = fy;
+            return;
+        };
+
+        if (head_y > height) && (tail_y < height as i16) {
+            // got to the bottom
+            self.fy = fy;
+            return;
+        };
+
+        // NOTE: need this to reset
+        if tail_y as u16 >= height {
+            self.reset(screen_size, options, rng);
+        };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{super::digital_rain::DigitalRainOptionsBuilder, *};
+
+    fn get_sane_options() -> DigitalRainOptions {
+        DigitalRainOptionsBuilder::default()
+            .drops_range((20, 30))
+            .speed_range((10, 20))
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn create_new_and_reset() {
+        let mut rng = rand::rng();
+        let mut new_drop =
+            RainDrop::new((100, 100), &get_sane_options(), 1, &mut rng);
+        assert!(!new_drop.body.is_empty());
+        assert!(new_drop.speed > 0);
+
+        new_drop.reset((100, 100), &get_sane_options(), &mut rng);
+        assert_eq!(new_drop.fy, 0.0);
+        assert_eq!(new_drop._drop_id, 1);
+        assert_eq!(new_drop.body.len(), 1);
+    }
+
+    #[test]
+    fn generate_a_lot_of_drops() {
+        let mut rng = rand::rng();
+        let mut drops = vec![];
+        for index in 1..=1000 {
+            drops.push(RainDrop::new(
+                (100, 100),
+                &get_sane_options(),
+                index,
+                &mut rng,
+            ));
+        }
+        assert_eq!(drops.len(), 1000);
+    }
+
+    #[test]
+    fn to_point() {
+        let new_drop = RainDrop::from_values(
+            1,
+            vec!['a'],
+            RainDropStyle::Gradient,
+            10,
+            10.8,
+            20,
+            10,
+        );
+        let (x, y) = new_drop.to_point();
+        assert_eq!(x, 10);
+        assert_eq!(y, 11);
+    }
+
+    #[test]
+    fn to_point_vec() {
+        let new_drop = RainDrop::from_values(
+            1,
+            vec!['a', 'b', 'c'],
+            RainDropStyle::Fading,
+            10,
+            10.0,
+            10,
+            8,
+        );
+        let points = new_drop.to_points_vec();
+        assert_eq!(points.len(), 3);
+        assert_eq!(points[0], (10, 10, 'a'));
+    }
+
+    #[test]
+    fn grow() {
+        let mut rng = rand::rng();
+        let mut new_drop = RainDrop::from_values(
+            1,
+            vec!['a'],
+            RainDropStyle::Front,
+            10,
+            10.8,
+            20,
+            10,
+        );
+        new_drop.grow(10, &mut rng);
+        assert_eq!(new_drop.body.len(), 1);
+        assert_eq!(new_drop.body.first(), Some(&'a'));
+
+        let mut new_drop = RainDrop::from_values(
+            1,
+            vec!['b'],
+            RainDropStyle::Middle,
+            10,
+            10.8,
+            20,
+            4,
+        );
+        new_drop.grow(12, &mut rng);
+        assert_eq!(new_drop.body.len(), 2);
+        assert_eq!(new_drop.body.get(1), Some(&'b'));
+        new_drop.grow(11, &mut rng);
+        assert_eq!(new_drop.body.len(), 2);
+
+        let mut new_drop = RainDrop::from_values(
+            1,
+            vec!['c'],
+            RainDropStyle::Back,
+            10,
+            10.8,
+            3,
+            4,
+        );
+        for _ in 1..10 {
+            new_drop.grow(12, &mut rng);
+        }
+        assert_eq!(new_drop.body.len(), 3);
+    }
+
+    #[test]
+    fn update() {
+        let mut rng = rand::rng();
+
+        // nothing special worm update
+        let mut new_drop = RainDrop::from_values(
+            1,
+            vec!['c'],
+            RainDropStyle::Back,
+            10,
+            10.8,
+            3,
+            10,
+        );
+        new_drop.update(
+            (100, 100),
+            &get_sane_options(),
+            Duration::from_millis(1000),
+            &mut rng,
+        );
+        assert_eq!(new_drop.fy.round() as u16, 21);
+        assert_eq!(new_drop.body.len(), 3);
+
+        // edge case when body len is 0 (why?)
+        let mut new_drop =
+            RainDrop::from_values(1, vec![], RainDropStyle::Middle, 10, 10.8, 3, 8);
+        new_drop.update(
+            (100, 100),
+            &get_sane_options(),
+            Duration::from_millis(1000),
+            &mut rng,
+        );
+        assert_eq!(new_drop.body.len(), 1);
+        assert_eq!(new_drop.fy, 0.0); // should be out of the h bounds and reseted
+
+        // when tail_y < 0
+        let mut new_drop = RainDrop::from_values(
+            1,
+            vec!['a', 'b', 'c', 'd'],
+            RainDropStyle::Fading,
+            10,
+            2.0,
+            5,
+            2,
+        );
+        new_drop.update(
+            (100, 100),
+            &get_sane_options(),
+            Duration::from_millis(1000),
+            &mut rng,
+        );
+        assert_eq!(new_drop.body.len(), 5);
+        assert!((new_drop.fy - new_drop.body.len() as f32) < 0.0);
+
+        // when head_y > screen height
+        let mut new_drop = RainDrop::from_values(
+            1,
+            vec!['a', 'b', 'c', 'd'],
+            RainDropStyle::Fading,
+            10,
+            30.8,
+            5,
+            2,
+        );
+        new_drop.update(
+            (100, 100),
+            &get_sane_options(),
+            Duration::from_millis(1000),
+            &mut rng,
+        );
+        assert_eq!(new_drop.body.len(), 5);
+        assert!(new_drop.fy > 30.0);
+
+        // when head_y > screen height and body len is 2
+        let mut new_drop = RainDrop::from_values(
+            1,
+            vec!['a', 'b'],
+            RainDropStyle::Fading,
+            10,
+            29.0,
+            5,
+            2,
+        );
+        new_drop.update(
+            (100, 100),
+            &get_sane_options(),
+            Duration::from_millis(1000),
+            &mut rng,
+        );
+        assert_eq!(new_drop.body.len(), 3);
+        assert_eq!(new_drop.fy, 31.0);
+        new_drop.update(
+            (100, 100),
+            &get_sane_options(),
+            Duration::from_millis(1000),
+            &mut rng,
+        );
+        assert_eq!(new_drop.fy, 33.0); // should be reseted there
+    }
+
+    #[test]
+    fn out_of_bounds() {
+        let mut rng = rand::rng();
+        let mut drops = vec![];
+        for i in 1..=10 {
+            drops.push(RainDrop::new((100, 100), &get_sane_options(), i, &mut rng));
+        }
+        assert_eq!(drops.len(), 10);
+
+        for _ in 1..=1000 {
+            for drop in drops.iter_mut() {
+                drop.update(
+                    (100, 100),
+                    &get_sane_options(),
+                    Duration::from_millis(100),
+                    &mut rng,
+                )
+            }
+        }
+    }
+}
+
+
+---
+File: src/rain/draw.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::rain::gradient;
+use crate::rain::rain_drop::RainDropStyle;
+use crossterm::style;
+
+pub fn pick_style(vw_style: &RainDropStyle, pos: usize) -> style::Attribute {
+    match vw_style {
+        RainDropStyle::Front => style::Attribute::Bold,
+        RainDropStyle::Middle => match pos {
+            0..=4 => style::Attribute::Bold,
+            _ => style::Attribute::NormalIntensity,
+        },
+        RainDropStyle::Back => style::Attribute::Bold,
+        _ => style::Attribute::NormalIntensity,
+    }
+}
+
+pub fn pick_color(
+    vw_style: &RainDropStyle,
+    pos: usize,
+    gradients: &[Vec<gradient::Color>],
+) -> style::Color {
+    match vw_style {
+        RainDropStyle::Gradient => match pos {
+            0 => style::Color::White,
+            _ => style::Color::Rgb {
+                r: 0,
+                g: 255 - (pos as u16 * 12).clamp(10, 256) as u8,
+                b: 0,
+            },
+        },
+        RainDropStyle::Front => match pos {
+            0 => style::Color::White,
+            _ => style::Color::Rgb {
+                r: 0,
+                g: 255 - (pos.pow(2) as u16).clamp(10, 256) as u8,
+                b: 0,
+            },
+        },
+        RainDropStyle::Back => {
+            let color = gradients[2][pos];
+            style::Color::Rgb {
+                r: color.r,
+                g: color.g,
+                b: color.b,
+            }
+        }
+        _ => style::Color::DarkGrey,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::rain::digital_rain::{DigitalRain, DigitalRainOptionsBuilder};
+
+    // use crossterm::terminal;
+    // use std::io::{self, Write};
+
+    fn get_default_rain() -> DigitalRain {
+        let rain_options = DigitalRainOptionsBuilder::default()
+            .drops_range((10, 20))
+            .speed_range((2, 15))
+            .build()
+            .unwrap();
+        DigitalRain::new(rain_options, (30, 30))
+    }
+
+    #[test]
+    fn run_loop_10_iterations() {
+        let mut stdout = Vec::new();
+        let mut digital_rain = get_default_rain();
+        let _ = crate::common::run_loop(&mut stdout, &mut digital_rain, Some(10));
+    }
+
+    /* // NOTE: this test failed on github CI pipeline
+    #[test]
+    fn run_loop_fps_gte_0() {
+        let mut stdout = Vec::new();
+        let mut digital_rain = get_default_rain();
+        // let mut fps: f64 = 0.0;
+        let fps = crate::common::run_loop(&mut stdout, &mut digital_rain, Some(10))
+            .unwrap();
+
+        /*
+        for _ in 0..10 {
+            let fps_res =
+                crate::common::run_loop(&mut stdout, &mut digital_rain, Some(10));
+            if let Ok(f) = fps_res {
+                fps = f;
+                break;
+            }
+        }
+        */
+        assert_eq!(fps > 0.0, true);
+    } */
+}
+
+
+---
+File: src/rain/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod digital_rain;
+pub mod draw;
+pub mod gradient;
+pub mod rain_drop;
+
+
+---
+File: src/donut/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+use crossterm::style;
+use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
+
+#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
+#[builder(public, setter(into))]
+pub struct DonutOptions {
+    #[builder(default = "1.0")]
+    pub inner_radius: f32,
+    #[builder(default = "2.0")]
+    pub outer_radius: f32,
+    #[builder(default = "0.07")]
+    pub rotation_speed_a: f32,
+    #[builder(default = "0.03")]
+    pub rotation_speed_b: f32,
+    #[builder(default = "5.0")]
+    pub distance: f32,
+    #[builder(default = "25.0")]
+    pub k1: f32,
+    #[builder(
+        default = "vec!['.', ',', '-', '~', ':', ';', '=', '!', '*', '#', '$', '@']"
+    )]
+    pub luminance_chars: Vec<char>,
+}
+
+pub struct Donut {
+    pub screen_size: (u16, u16),
+    options: DonutOptions,
+    buffer: Buffer,
+    rotation_a: f32,
+    rotation_b: f32,
+}
+
+impl TerminalEffect for Donut {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        let mut curr_buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+
+        self.render_donut(&mut curr_buffer);
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
+    }
+
+    fn update(&mut self) {
+        self.rotation_a += self.options.rotation_speed_a;
+        self.rotation_b += self.options.rotation_speed_b;
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height);
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new(self.options.clone(), self.screen_size);
+    }
+}
+
+impl Donut {
+    pub fn new(options: DonutOptions, screen_size: (u16, u16)) -> Self {
+        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+        Self {
+            screen_size,
+            options,
+            buffer,
+            rotation_a: 0.0,
+            rotation_b: 0.0,
+        }
+    }
+
+    fn render_donut(&self, buffer: &mut Buffer) {
+        buffer.fill_with(&Cell::default());
+
+        let width = self.screen_size.0 as usize;
+        let height = self.screen_size.1 as usize;
+
+        // Precompute sines and cosines
+        let sin_a = self.rotation_a.sin();
+        let cos_a = self.rotation_a.cos();
+        let sin_b = self.rotation_b.sin();
+        let cos_b = self.rotation_b.cos();
+
+        // Create a zbuffer and output buffer
+        let mut zbuffer = vec![0.0; width * height];
+        let mut output = vec![' '; width * height];
+
+        // gruvbox gradient
+        let colors = [
+            style::Color::Rgb {
+                r: 213,
+                g: 196,
+                b: 161,
+            },
+            style::Color::Rgb {
+                r: 213,
+                g: 196,
+                b: 161,
+            },
+            style::Color::Rgb {
+                r: 213,
+                g: 196,
+                b: 161,
+            },
+            style::Color::Rgb {
+                r: 213,
+                g: 196,
+                b: 161,
+            },
+            style::Color::Rgb {
+                r: 251,
+                g: 241,
+                b: 199,
+            },
+            style::Color::Rgb {
+                r: 251,
+                g: 241,
+                b: 199,
+            },
+            style::Color::Rgb {
+                r: 69,
+                g: 133,
+                b: 136,
+            },
+            style::Color::Rgb {
+                r: 104,
+                g: 157,
+                b: 106,
+            },
+            style::Color::Rgb {
+                r: 152,
+                g: 151,
+                b: 26,
+            },
+            style::Color::Rgb {
+                r: 215,
+                g: 153,
+                b: 33,
+            },
+            style::Color::Rgb {
+                r: 214,
+                g: 93,
+                b: 14,
+            },
+            style::Color::Rgb {
+                r: 204,
+                g: 36,
+                b: 29,
+            },
+        ];
+
+        // Theta goes around the cross-sectional circle of a torus
+        for theta in 0..314 {
+            let theta = theta as f32 * 0.02;
+            let sin_theta = theta.sin();
+            let cos_theta = theta.cos();
+
+            // Phi goes around the center of revolution of a torus
+            for phi in 0..628 {
+                let phi = phi as f32 * 0.01;
+                let sin_phi = phi.sin();
+                let cos_phi = phi.cos();
+
+                // Compute the x,y coordinate of the circle before revolving
+                let circle_x = self.options.outer_radius
+                    + self.options.inner_radius * cos_theta;
+                let circle_y = self.options.inner_radius * sin_theta;
+
+                // Final 3D (x,y,z) coordinate after rotations
+                let x = circle_x * (cos_b * cos_phi + sin_a * sin_b * sin_phi)
+                    - circle_y * cos_a * sin_b;
+                let y = circle_x * (sin_b * cos_phi - sin_a * cos_b * sin_phi)
+                    + circle_y * cos_a * cos_b;
+                let z = self.options.distance
+                    + cos_a * circle_x * sin_phi
+                    + circle_y * sin_a;
+                let z_inv = 1.0 / z;
+
+                // Project into 2D
+                let x_proj =
+                    (width as f32 / 2.0 + self.options.k1 * z_inv * x) as usize;
+                let y_proj = (height as f32 / 2.0
+                    + self.options.k1 * z_inv * y * 0.8)
+                    as usize;
+
+                // Calculate luminance
+                let l = cos_phi * cos_theta * sin_b
+                    - cos_a * cos_theta * sin_phi
+                    - sin_a * sin_theta
+                    + cos_b * (cos_a * sin_theta - cos_theta * sin_a * sin_phi);
+
+                if l > 0.0 {
+                    let luminance_index = ((l * 8.0) as usize)
+                        .min(self.options.luminance_chars.len() - 1);
+                    let c = self.options.luminance_chars[luminance_index];
+
+                    // Check bounds
+                    if x_proj < width && y_proj < height {
+                        let idx = y_proj * width + x_proj;
+                        if z_inv > zbuffer[idx] {
+                            zbuffer[idx] = z_inv;
+                            output[idx] = c;
+                        }
+                    }
+                }
+            }
+        }
+
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                if output[idx] != ' ' {
+                    let luminance_index = self
+                        .options
+                        .luminance_chars
+                        .iter()
+                        .position(|&r| r == output[idx])
+                        .unwrap_or(0);
+                    let color = colors[luminance_index % colors.len()];
+                    buffer.set(
+                        x,
+                        y,
+                        Cell::new(output[idx], color, style::Attribute::Bold),
+                    );
+                }
+            }
+        }
+    }
+}
+
+impl DefaultOptions for Donut {
+    type Options = DonutOptions;
+
+    fn default_options(width: u16, height: u16) -> Self::Options {
+        DonutOptionsBuilder::default()
+            .inner_radius(1.0)
+            .outer_radius(2.0)
+            .rotation_speed_a(0.07)
+            .rotation_speed_b(0.03)
+            .distance(5.5)
+            .k1((width.min(height) as f32) * 0.8)
+            .luminance_chars(vec![
+                '.', ',', '-', '~', ':', ';', '=', '!', '*', '#', '$', '@',
+            ])
+            .build()
+            .unwrap()
+    }
+}
+
+
+---
+File: src/donut/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod effect;
+#[allow(unused)]
+pub use effect::{Donut, DonutOptions, DonutOptionsBuilder};
+
+
+---
+File: src/check.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::common::TerminalEffect;
+use crate::error::Result;
+use crossterm::{
+    cursor,
+    event::{self, Event},
+    execute,
+    style::Stylize,
+    terminal::{self, Clear, ClearType},
+};
+use std::io::{self, Write};
+use std::time::Duration;
+
+/// Runs a terminal screensaver effect for a limited number of frames to validate its functionality.
+///
+/// This function initializes the terminal in alternate screen mode, runs the specified effect
+/// for the given number of frames, and waits for user input before restoring the terminal state.
+/// Useful for testing and debugging screensaver effects.
+///
+/// # Arguments
+/// * `effect` - The terminal effect implementation to run
+/// * `frames` - Number of frames to render before pausing
+///
+/// # Returns
+/// * `Result<(), TartsError>` - Success or error with terminal operations
+///
+/// # Example
+/// ```ignore
+/// let options = DigitalRainOptionsBuilder::default()
+///     .screen_size((80, 40))
+///     .build()?;
+/// let mut effect = DigitalRain::new(options);
+/// test_effect(&mut effect, 100)?;
+/// ```
+pub fn test_effect<T: TerminalEffect>(effect: &mut T, frames: usize) -> Result<()> {
+    let mut stdout = io::stdout();
+    execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
+    terminal::enable_raw_mode()?;
+
+    for frame in 1..=frames {
+        // Clear the screen
+        execute!(stdout, Clear(ClearType::All))?;
+
+        // Get the diff for the current frame
+        let diff = effect.get_diff();
+
+        // Render the frame
+        for (x, y, cell) in diff {
+            execute!(
+                stdout,
+                cursor::MoveTo(x as u16, y as u16),
+                crossterm::style::PrintStyledContent(
+                    cell.symbol.with(cell.color).attribute(cell.attr)
+                )
+            )?;
+        }
+
+        // Print frame number
+        execute!(
+            stdout,
+            cursor::MoveTo(0, 0),
+            crossterm::style::Print(format!("Frame: {}", frame))
+        )?;
+
+        stdout.flush()?;
+
+        // Update the effect for the next frame
+        effect.update();
+    }
+
+    // Wait for any key press
+    loop {
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(_) = event::read()? {
+                break;
+            }
+        }
+    }
+
+    execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen)?;
+    terminal::disable_raw_mode()?;
+
+    Ok(())
+}
+
+/// Run appropirate effect till frame number
+pub fn run_test_for_effect(effect_name: &str, frames: usize) -> Result<()> {
+    match effect_name {
+        "matrix" => {
+            let options =
+                crate::rain::digital_rain::DigitalRainOptionsBuilder::default()
+                    .drops_range((120, 240))
+                    .speed_range((2, 16))
+                    .build()
+                    .unwrap();
+            let mut digital_rain = crate::rain::digital_rain::DigitalRain::new(
+                options,
+                terminal::size()?,
+            );
+            test_effect(&mut digital_rain, frames)
+        }
+        "life" => {
+            let options = crate::life::ConwayLifeOptionsBuilder::default()
+                .build()
+                .unwrap();
+            let mut conway_life =
+                crate::life::ConwayLife::new(options, terminal::size()?);
+            test_effect(&mut conway_life, frames)
+        }
+        "maze" => {
+            let options =
+                crate::maze::MazeOptionsBuilder::default().build().unwrap();
+            let mut maze = crate::maze::Maze::new(options, terminal::size()?);
+            test_effect(&mut maze, frames)
+        }
+        _ => {
+            println!(
+                "Unknown effect: {}. Available effects are: matrix, life, maze",
+                effect_name
+            );
+            Ok(())
+        }
+    }
+}
+
+
+---
+File: src/error.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub type Result<T> = std::result::Result<T, TartsError>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum TartsError {
+    #[error("Configuration error: {0}")]
+    Config(#[from] ConfigError),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    // #[error("System error: {0}")]
+    // System(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Failed to read config file: {0}")]
+    FileRead(#[from] std::io::Error),
+
+    #[error("Failed to deserialize config: {0}")]
+    DeserializeFormat(#[from] toml::de::Error),
+
+    #[error("Failed to serialize config: {0}")]
+    SerializeFormat(#[from] toml::ser::Error),
+    #[error("Missing required field: {0}")]
+    MissingField(String),
+}
+
+
+---
+File: src/config.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::{
+    boids::{BoidsOptions, BoidsOptionsBuilder},
+    crab::{CrabOptions, CrabOptionsBuilder},
+    cube::{CubeOptions, CubeOptionsBuilder},
+    error::{ConfigError, Result, TartsError},
+    life::{ConwayLifeOptions, ConwayLifeOptionsBuilder},
+    maze::{MazeOptions, MazeOptionsBuilder},
+    rain::digital_rain::{DigitalRainOptions, DigitalRainOptionsBuilder},
+};
+use directories::ProjectDirs;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Config {
+    #[serde(default)]
+    matrix: DigitalRainOptions,
+    #[serde(default)]
+    life: ConwayLifeOptions,
+    #[serde(default)]
+    maze: MazeOptions,
+    #[serde(default)]
+    boids: BoidsOptions,
+    #[serde(default)]
+    cube: CubeOptions,
+    #[serde(default)]
+    crab: CrabOptions,
+}
+
+impl Config {
+    // Generate and save default config
+    pub fn save_default_config() -> Result<()> {
+        let proj_dirs = ProjectDirs::from("", "", "tarts").ok_or_else(|| {
+            TartsError::Config(ConfigError::MissingField(
+                "Could not determine config directory".into(),
+            ))
+        })?;
+
+        // Create config directory if it doesn't exist
+        let config_dir = proj_dirs.config_dir();
+        std::fs::create_dir_all(config_dir)?;
+
+        let config_path = config_dir.join("tarts.toml");
+
+        // Create default config
+        let default_config = Config::default();
+
+        // Convert to TOML and save
+        let contents = toml::to_string(&default_config)
+            .map_err(|e| TartsError::Config(ConfigError::SerializeFormat(e)))?;
+        std::fs::write(config_path, contents)?;
+
+        Ok(())
+    }
+
+    // Modify your existing load method to create default if missing
+    #[allow(dead_code)]
+    pub fn load_old() -> Result<Self> {
+        let proj_dirs = ProjectDirs::from("", "", "tarts").ok_or_else(|| {
+            TartsError::Config(ConfigError::MissingField(
+                "Could not determine config directory".into(),
+            ))
+        })?;
+
+        let config_path = proj_dirs.config_dir().join("tarts.toml");
+
+        if !config_path.exists() {
+            // Create config directory if it doesn't exist
+            std::fs::create_dir_all(proj_dirs.config_dir())?;
+
+            // Create and save default config
+            let default_config = Config::default();
+            let contents = toml::to_string(&default_config)
+                .map_err(|e| TartsError::Config(ConfigError::SerializeFormat(e)))?;
+            std::fs::write(&config_path, contents)?;
+            return Ok(default_config);
+        }
+
+        let contents = std::fs::read_to_string(config_path)?;
+        toml::from_str(&contents)
+            .map_err(|e| TartsError::Config(ConfigError::DeserializeFormat(e)))
+    }
+
+    #[allow(dead_code)]
+    pub fn load() -> Result<Self> {
+        let proj_dirs = ProjectDirs::from("", "", "tarts").ok_or_else(|| {
+            eprintln!("Failed to get project directory");
+            TartsError::Config(ConfigError::MissingField(
+                "Could not determine config directory".into(),
+            ))
+        })?;
+
+        println!("Config dir: {:?}", proj_dirs.config_dir());
+        let config_path = proj_dirs.config_dir().join("tarts.toml");
+        println!("Config path: {:?}", config_path);
+
+        if !config_path.exists() {
+            println!("Config file doesn't exist, creating default");
+
+            // Create config directory if it doesn't exist
+            match std::fs::create_dir_all(proj_dirs.config_dir()) {
+                Ok(_) => println!("Created config directory"),
+                Err(e) => println!("Failed to create config directory: {}", e),
+            }
+
+            // Create default config using builders explicitly
+            let default_config = Config {
+                matrix: DigitalRainOptionsBuilder::default().build().unwrap(),
+                life: ConwayLifeOptionsBuilder::default().build().unwrap(),
+                maze: MazeOptionsBuilder::default().build().unwrap(),
+                boids: BoidsOptionsBuilder::default().build().unwrap(),
+                cube: CubeOptionsBuilder::default().build().unwrap(),
+                crab: CrabOptionsBuilder::default().build().unwrap(),
+            };
+
+            println!("Default cube options: {:?}", default_config.cube);
+
+            // Serialize and write
+            let contents = toml::to_string(&default_config).map_err(|e| {
+                println!("Failed to serialize config: {}", e);
+                TartsError::Config(ConfigError::SerializeFormat(e))
+            })?;
+
+            println!("TOML contents: {}", contents);
+
+            std::fs::write(&config_path, &contents)?;
+            println!("Wrote config file successfully");
+
+            return Ok(default_config);
+        }
+
+        println!("Config file exists, loading it");
+        let contents = std::fs::read_to_string(&config_path)?;
+        println!("Loaded contents: {}", contents);
+
+        let config = toml::from_str(&contents).map_err(|e| {
+            println!("Failed to parse config: {}", e);
+            TartsError::Config(ConfigError::DeserializeFormat(e))
+        })?;
+
+        println!("Parsed config successfully");
+        Ok(config)
+    }
+}
+
+// FIXIT: need to do something with this mess
+#[allow(unused)]
+impl Config {
+    // Add these methods
+    pub fn get_matrix_options(
+        &self,
+        _screen_size: (u16, u16),
+    ) -> DigitalRainOptions {
+        // If default is needed, create it, otherwise use stored config
+        self.matrix.clone()
+    }
+
+    pub fn get_life_options(&self, _screen_size: (u16, u16)) -> ConwayLifeOptions {
+        self.life.clone()
+    }
+
+    pub fn get_maze_options(&self, _screen_size: (u16, u16)) -> MazeOptions {
+        self.maze.clone()
+    }
+
+    pub fn get_boids_options(&self, screen_size: (u16, u16)) -> BoidsOptions {
+        let mut options = self.boids.clone();
+        options.screen_size = screen_size;
+        options
+    }
+
+    pub fn get_cube_options(&self) -> CubeOptions {
+        self.cube.clone()
+    }
+
+    pub fn get_crab_options(&self) -> CrabOptions {
+        self.crab.clone()
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            matrix: DigitalRainOptionsBuilder::default().build().unwrap(),
+            life: ConwayLifeOptionsBuilder::default().build().unwrap(),
+            maze: MazeOptionsBuilder::default().build().unwrap(),
+            boids: BoidsOptionsBuilder::default().build().unwrap(),
+            cube: CubeOptionsBuilder::default().build().unwrap(),
+            crab: CrabOptionsBuilder::default().build().unwrap(),
+        }
+    }
+}
+
+
+---
+File: src/lib.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod blank;
+pub mod boids;
+pub mod buffer;
+pub mod check;
+pub mod common;
+pub mod config;
+pub mod crab;
+pub mod cube;
+pub mod donut;
+pub mod error;
+pub mod life;
+pub mod maze;
+pub mod pipes;
+pub mod plasma;
+pub mod rain;
+
+
+---
+File: src/cube/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+use crossterm::style;
+use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
+use std::time::Instant;
+
+/// Represents a 3D point in space
+#[derive(Clone, Copy, Debug)]
+struct Point3D {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+/// Represents a 2D point for screen coordinates
+#[derive(Clone, Copy, Debug)]
+struct Point2D {
+    x: f32,
+    y: f32,
+}
+
+/// Represents a 3D edge connecting two vertices
+struct Edge {
+    v1: usize,
+    v2: usize,
+}
+
+#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
+#[builder(public, setter(into))]
+pub struct CubeOptions {
+    #[builder(default = "5.0")]
+    pub cube_size: f32,
+    #[builder(default = "0.5")]
+    pub rotation_speed_x: f32,
+    #[builder(default = "0.7")]
+    pub rotation_speed_y: f32,
+    #[builder(default = "0.3")]
+    pub rotation_speed_z: f32,
+    #[builder(default = "3.0")]
+    pub distance: f32,
+    #[builder(default = "true")]
+    pub use_braille: bool,
+}
+
+pub struct Cube {
+    pub screen_size: (u16, u16),
+    options: CubeOptions,
+    buffer: Buffer,
+    vertices: Vec<Point3D>,
+    edges: Vec<Edge>,
+    rotation: (f32, f32, f32),
+    start_time: Instant,
+}
+
+impl TerminalEffect for Cube {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        let mut curr_buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+
+        // Rotate vertices
+        let rotated_vertices = self.rotate_vertices();
+
+        // Project 3D points to 2D
+        let projected_vertices: Vec<Point2D> =
+            rotated_vertices.iter().map(|v| self.project(*v)).collect();
+
+        // Draw the cube
+        if self.options.use_braille {
+            self.draw_braille(&projected_vertices, &mut curr_buffer);
+        } else {
+            self.draw_ascii(&projected_vertices, &mut curr_buffer);
+        }
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
+    }
+
+    fn update(&mut self) {
+        // Update rotation based on elapsed time
+        let elapsed = self.start_time.elapsed().as_secs_f32();
+        self.rotation.0 = elapsed * self.options.rotation_speed_x;
+        self.rotation.1 = elapsed * self.options.rotation_speed_y;
+        self.rotation.2 = elapsed * self.options.rotation_speed_z;
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height);
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new(self.options.clone(), self.screen_size);
+    }
+}
+
+impl Cube {
+    pub fn new(options: CubeOptions, screen_size: (u16, u16)) -> Self {
+        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+
+        // Define cube vertices
+        let size = options.cube_size;
+        let vertices = vec![
+            Point3D {
+                x: -size,
+                y: -size,
+                z: -size,
+            }, // 0: front bottom left
+            Point3D {
+                x: size,
+                y: -size,
+                z: -size,
+            }, // 1: front bottom right
+            Point3D {
+                x: size,
+                y: size,
+                z: -size,
+            }, // 2: front top right
+            Point3D {
+                x: -size,
+                y: size,
+                z: -size,
+            }, // 3: front top left
+            Point3D {
+                x: -size,
+                y: -size,
+                z: size,
+            }, // 4: back bottom left
+            Point3D {
+                x: size,
+                y: -size,
+                z: size,
+            }, // 5: back bottom right
+            Point3D {
+                x: size,
+                y: size,
+                z: size,
+            }, // 6: back top right
+            Point3D {
+                x: -size,
+                y: size,
+                z: size,
+            }, // 7: back top left
+        ];
+
+        // Define cube edges
+        let edges = vec![
+            // Front face
+            Edge { v1: 0, v2: 1 },
+            Edge { v1: 1, v2: 2 },
+            Edge { v1: 2, v2: 3 },
+            Edge { v1: 3, v2: 0 },
+            // Back face
+            Edge { v1: 4, v2: 5 },
+            Edge { v1: 5, v2: 6 },
+            Edge { v1: 6, v2: 7 },
+            Edge { v1: 7, v2: 4 },
+            // Connecting edges
+            Edge { v1: 0, v2: 4 },
+            Edge { v1: 1, v2: 5 },
+            Edge { v1: 2, v2: 6 },
+            Edge { v1: 3, v2: 7 },
+        ];
+
+        Self {
+            screen_size,
+            options,
+            buffer,
+            vertices,
+            edges,
+            rotation: (0.0, 0.0, 0.0),
+            start_time: Instant::now(),
+        }
+    }
+
+    // Rotate a point using rotation matrices
+    fn rotate_point(&self, p: Point3D) -> Point3D {
+        let (rx, ry, rz) = self.rotation;
+
+        // X-axis rotation
+        let cos_x = rx.cos();
+        let sin_x = rx.sin();
+        let y1 = p.y * cos_x - p.z * sin_x;
+        let z1 = p.y * sin_x + p.z * cos_x;
+
+        // Y-axis rotation
+        let cos_y = ry.cos();
+        let sin_y = ry.sin();
+        let x2 = p.x * cos_y + z1 * sin_y;
+        let z2 = -p.x * sin_y + z1 * cos_y;
+
+        // Z-axis rotation
+        let cos_z = rz.cos();
+        let sin_z = rz.sin();
+        let x3 = x2 * cos_z - y1 * sin_z;
+        let y3 = x2 * sin_z + y1 * cos_z;
+
+        Point3D {
+            x: x3,
+            y: y3,
+            z: z2,
+        }
+    }
+
+    // Rotate all vertices
+    fn rotate_vertices(&self) -> Vec<Point3D> {
+        self.vertices
+            .iter()
+            .map(|v| self.rotate_point(*v))
+            .collect()
+    }
+
+    // Project a 3D point to 2D screen coordinates
+    fn project(&self, p: Point3D) -> Point2D {
+        let distance = self.options.distance;
+        let z_factor = 1.0 / (distance + p.z);
+
+        // Calculate screen coordinates
+        let width = self.screen_size.0 as f32;
+        let height = self.screen_size.1 as f32;
+
+        let scale_factor = width.min(height) * 0.8;
+
+        let screen_x = width / 2.0 + p.x * z_factor * scale_factor;
+        let screen_y = height / 2.0 + p.y * z_factor * scale_factor * 0.8;
+
+        Point2D {
+            x: screen_x,
+            y: screen_y,
+        }
+    }
+
+    // Draw the cube using ASCII characters
+    fn draw_ascii(&self, projected: &[Point2D], buffer: &mut Buffer) {
+        // Clear the buffer first
+        buffer.fill_with(&Cell::default());
+
+        // Draw edges
+        for edge in &self.edges {
+            self.draw_line(
+                projected[edge.v1].x,
+                projected[edge.v1].y,
+                projected[edge.v2].x,
+                projected[edge.v2].y,
+                buffer,
+            );
+        }
+    }
+
+    // Draw the cube using braille patterns
+    fn draw_braille(&self, projected: &[Point2D], buffer: &mut Buffer) {
+        // Clear the buffer first
+        buffer.fill_with(&Cell::default());
+
+        // Draw edges with braille
+        for edge in &self.edges {
+            self.draw_braille_line(
+                projected[edge.v1].x,
+                projected[edge.v1].y,
+                projected[edge.v2].x,
+                projected[edge.v2].y,
+                buffer,
+            );
+        }
+    }
+
+    // Draw a line using ASCII characters
+    fn draw_line(&self, x0: f32, y0: f32, x1: f32, y1: f32, buffer: &mut Buffer) {
+        let mut x0 = x0 as i32;
+        let mut y0 = y0 as i32;
+        let x1 = x1 as i32;
+        let y1 = y1 as i32;
+
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+
+        let width = self.screen_size.0 as i32;
+        let height = self.screen_size.1 as i32;
+
+        loop {
+            if x0 >= 0 && x0 < width && y0 >= 0 && y0 < height {
+                buffer.set(
+                    x0 as usize,
+                    y0 as usize,
+                    Cell::new('█', style::Color::Green, style::Attribute::Bold),
+                );
+            }
+
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+
+            let e2 = 2 * err;
+            if e2 >= dy {
+                if x0 == x1 {
+                    break;
+                }
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                if y0 == y1 {
+                    break;
+                }
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
+    // Draw a line using braille patterns for higher resolution
+    fn draw_braille_line(
+        &self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        buffer: &mut Buffer,
+    ) {
+        // Scale to braille resolution (2x4 dots per cell)
+        let x0 = x0 * 2.0;
+        let y0 = y0 * 4.0;
+        let x1 = x1 * 2.0;
+        let y1 = y1 * 4.0;
+
+        let mut x0 = x0 as i32;
+        let mut y0 = y0 as i32;
+        let x1 = x1 as i32;
+        let y1 = y1 as i32;
+
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+
+        // Map from braille resolution to terminal cells
+        let width = (self.screen_size.0 as i32) * 2;
+        let height = (self.screen_size.1 as i32) * 4;
+
+        // Braille dot tracking
+        let mut braille_map: std::collections::HashMap<(i32, i32), u8> =
+            std::collections::HashMap::new();
+
+        loop {
+            if x0 >= 0 && x0 < width && y0 >= 0 && y0 < height {
+                // Calculate which terminal cell this braille dot belongs to
+                let cell_x = x0 / 2;
+                let cell_y = y0 / 4;
+
+                // Calculate which dot within the braille pattern (0-7)
+                let dot_x = x0 % 2;
+                let dot_y = y0 % 4;
+                let dot_index = dot_y * 2 + dot_x;
+
+                // Set the corresponding bit in our braille map
+                let key = (cell_x, cell_y);
+                let dots = braille_map.entry(key).or_insert(0);
+                *dots |= 1 << dot_index;
+            }
+
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+
+            let e2 = 2 * err;
+            if e2 >= dy {
+                if x0 == x1 {
+                    break;
+                }
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                if y0 == y1 {
+                    break;
+                }
+                err += dx;
+                y0 += sy;
+            }
+        }
+
+        // Convert our braille map to characters and set them in the buffer
+        for ((x, y), dots) in braille_map {
+            if x >= 0
+                && x < self.screen_size.0 as i32
+                && y >= 0
+                && y < self.screen_size.1 as i32
+            {
+                // The Unicode braille patterns start at U+2800
+                // Each bit set in our dots variable corresponds to a raised dot
+                let braille_char =
+                    std::char::from_u32(0x2800 + dots as u32).unwrap_or('?');
+
+                buffer.set(
+                    x as usize,
+                    y as usize,
+                    Cell::new(
+                        braille_char,
+                        style::Color::Green,
+                        style::Attribute::Bold,
+                    ),
+                );
+            }
+        }
+    }
+}
+
+impl DefaultOptions for Cube {
+    type Options = CubeOptions;
+
+    fn default_options(_width: u16, _height: u16) -> Self::Options {
+        CubeOptionsBuilder::default()
+            .cube_size(1.0)
+            .rotation_speed_x(0.6)
+            .rotation_speed_y(0.8)
+            .rotation_speed_z(0.4)
+            .distance(3.5)
+            .use_braille(true)
+            .build()
+            .unwrap()
+    }
+}
+
+
+---
+File: src/cube/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod effect;
+#[allow(unused)]
+pub use effect::{Cube, CubeOptions, CubeOptionsBuilder};
+
+
+---
+File: src/boids/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+use crossterm::style;
+use derive_builder::Builder;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::f32::consts::PI;
+
+// Individual boid
+#[derive(Clone)]
+struct Boid {
+    position: (f32, f32), // Floating point for smooth movement
+    velocity: (f32, f32), // Direction vector
+    character: char,      // Visual representation
+    color: style::Color,  // Color based on velocity/state
+}
+
+#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
+#[builder(public, setter(into))]
+pub struct BoidsOptions {
+    pub screen_size: (u16, u16),
+    #[builder(default = "100")]
+    boid_count: u16,
+
+    // Separation parameters
+    #[builder(default = "1.5")]
+    separation_weight: f32,
+    #[builder(default = "3.0")]
+    separation_distance: f32,
+
+    // Alignment parameters
+    #[builder(default = "2.0")]
+    alignment_weight: f32,
+    #[builder(default = "15.0")]
+    alignment_distance: f32,
+
+    // Cohesion parameters
+    #[builder(default = "1.5")]
+    cohesion_weight: f32,
+    #[builder(default = "15.0")]
+    cohesion_distance: f32,
+
+    // Additional parameters
+    #[builder(default = "2.0")]
+    drive_factor: f32, // Helps maintain momentum
+    #[builder(default = "1.2")]
+    swirl_factor: f32, // Adds some rotation to movement
+    #[builder(default = "1.8")]
+    border_factor: f32, // How strongly to avoid borders
+
+    #[builder(default = "1.8")]
+    max_speed: f32,
+    #[builder(default = "0.2")]
+    min_speed: f32,
+}
+
+pub struct Boids {
+    options: BoidsOptions,
+    buffer: Buffer,
+    boids: Vec<Boid>,
+    // rng: rand::prelude::ThreadRng,
+}
+
+impl Boid {
+    fn new(position: (f32, f32), velocity: (f32, f32)) -> Self {
+        Self {
+            position,
+            velocity,
+            character: '•',
+            color: style::Color::White,
+        }
+    }
+
+    // Get character based on direction
+    fn get_direction_char(&self) -> char {
+        let (vx, vy) = self.velocity;
+        let angle = f32::atan2(vy, vx);
+
+        // Map angle to 8 directions
+        match ((angle / PI * 4.0).round() as i32 + 8) % 8 {
+            0 => '→',
+            1 => '↘',
+            2 => '↓',
+            3 => '↙',
+            4 => '←',
+            5 => '↖',
+            6 => '↑',
+            7 => '↗',
+            _ => '•',
+        }
+    }
+
+    // Update character and color based on velocity
+    fn update_visual(&mut self) {
+        self.character = self.get_direction_char();
+
+        // Speed-based color (green to white)
+        let speed = (self.velocity.0.powi(2) + self.velocity.1.powi(2)).sqrt();
+        let intensity = ((speed * 128.0).clamp(0.0, 255.0)) as u8;
+        self.color = style::Color::Rgb {
+            r: intensity,
+            g: 200,
+            b: intensity.saturating_add(20),
+        };
+    }
+}
+
+impl TerminalEffect for Boids {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        let mut curr_buffer = Buffer::new(
+            self.options.screen_size.0 as usize,
+            self.options.screen_size.1 as usize,
+        );
+
+        // Fill current buffer with boids
+        for boid in &self.boids {
+            let x = boid.position.0.round() as usize
+                % self.options.screen_size.0 as usize;
+            let y = boid.position.1.round() as usize
+                % self.options.screen_size.1 as usize;
+
+            curr_buffer.set(
+                x,
+                y,
+                Cell::new(boid.character, boid.color, style::Attribute::Bold),
+            );
+        }
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
+    }
+
+    fn update(&mut self) {
+        // Apply the three boid rules
+        self.apply_rules();
+
+        // Update positions and appearance
+        self.update_positions();
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.options.screen_size = (width, height);
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new(self.options.clone());
+    }
+}
+
+impl Boids {
+    pub fn new(options: BoidsOptions) -> Self {
+        let mut rng = rand::rng();
+        let buffer = Buffer::new(
+            options.screen_size.0 as usize,
+            options.screen_size.1 as usize,
+        );
+
+        let width = options.screen_size.0 as f32;
+        let height = options.screen_size.1 as f32;
+
+        // Create initial boids with random positions and velocities
+        let mut boids = Vec::with_capacity(options.boid_count as usize);
+        for _ in 0..options.boid_count {
+            let position =
+                (rng.random_range(0.0..width), rng.random_range(0.0..height));
+
+            let velocity =
+                (rng.random_range(-1.0..1.0), rng.random_range(-1.0..1.0));
+
+            let mut boid = Boid::new(position, velocity);
+            boid.update_visual();
+            boids.push(boid);
+        }
+
+        Self {
+            options,
+            buffer,
+            boids,
+        }
+    }
+
+    // Calculate toroidal difference between two positions
+    fn toroidal_diff(&self, a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
+        let width = self.options.screen_size.0 as f32;
+        let height = self.options.screen_size.1 as f32;
+
+        let mut dx = a.0 - b.0;
+        let mut dy = a.1 - b.1;
+
+        if dx > width / 2.0 {
+            dx -= width;
+        } else if dx < -width / 2.0 {
+            dx += width;
+        }
+
+        if dy > height / 2.0 {
+            dy -= height;
+        } else if dy < -height / 2.0 {
+            dy += height;
+        }
+
+        (dx, dy)
+    }
+
+    fn apply_rules(&mut self) {
+        let num_boids = self.boids.len();
+        let mut separation_adjustments = vec![(0.0, 0.0); num_boids];
+        let mut alignment_adjustments = vec![(0.0, 0.0); num_boids];
+        let mut cohesion_adjustments = vec![(0.0, 0.0); num_boids];
+        let mut border_adjustments = vec![(0.0, 0.0); num_boids];
+
+        // Pre-calculate all adjustments
+        for i in 0..num_boids {
+            // Apply separation rule
+            let mut separation = (0.0, 0.0);
+            let mut sep_count = 0;
+
+            // Apply alignment rule
+            let mut avg_velocity = (0.0, 0.0);
+            let mut align_count = 0;
+
+            // Apply cohesion rule
+            let mut center = (0.0, 0.0);
+            let mut cohesion_count = 0;
+
+            for j in 0..num_boids {
+                if i == j {
+                    continue;
+                }
+
+                let diff = self
+                    .toroidal_diff(self.boids[j].position, self.boids[i].position);
+                let distance = (diff.0.powi(2) + diff.1.powi(2)).sqrt();
+
+                // Separation
+                #[allow(clippy::collapsible_if)]
+                if distance < self.options.separation_distance {
+                    if distance > 0.0 {
+                        let factor = 1.0 / distance;
+                        separation.0 -= diff.0 * factor;
+                        separation.1 -= diff.1 * factor;
+                        sep_count += 1;
+                    }
+                }
+
+                // Alignment
+                if distance < self.options.alignment_distance {
+                    avg_velocity.0 += self.boids[j].velocity.0;
+                    avg_velocity.1 += self.boids[j].velocity.1;
+                    align_count += 1;
+                }
+
+                // Cohesion
+                if distance < self.options.cohesion_distance {
+                    center.0 += self.boids[j].position.0;
+                    center.1 += self.boids[j].position.1;
+                    cohesion_count += 1;
+                }
+            }
+
+            // Finalize separation
+            if sep_count > 0 {
+                separation_adjustments[i] = (
+                    separation.0 * self.options.separation_weight,
+                    separation.1 * self.options.separation_weight,
+                );
+            }
+
+            // Finalize alignment
+            if align_count > 0 {
+                let avg_vel = (
+                    avg_velocity.0 / align_count as f32,
+                    avg_velocity.1 / align_count as f32,
+                );
+
+                alignment_adjustments[i] = (
+                    (avg_vel.0 - self.boids[i].velocity.0)
+                        * self.options.alignment_weight
+                        * 0.05,
+                    (avg_vel.1 - self.boids[i].velocity.1)
+                        * self.options.alignment_weight
+                        * 0.05,
+                );
+            }
+
+            // Finalize cohesion
+            if cohesion_count > 0 {
+                let perceived_center = (
+                    center.0 / cohesion_count as f32,
+                    center.1 / cohesion_count as f32,
+                );
+
+                let toward_center =
+                    self.toroidal_diff(perceived_center, self.boids[i].position);
+
+                // Calculate perpendicular (swirl) vector
+                let swirl = (-toward_center.1, toward_center.0);
+                let swirl_len = (swirl.0.powi(2) + swirl.1.powi(2)).sqrt();
+                let swirl_normalized = if swirl_len > 0.0 {
+                    (swirl.0 / swirl_len, swirl.1 / swirl_len)
+                } else {
+                    (0.0, 0.0)
+                };
+
+                cohesion_adjustments[i] = (
+                    toward_center.0 * self.options.cohesion_weight * 0.03
+                        + swirl_normalized.0 * self.options.swirl_factor * 0.02,
+                    toward_center.1 * self.options.cohesion_weight * 0.03
+                        + swirl_normalized.1 * self.options.swirl_factor * 0.02,
+                );
+
+                // cohesion_adjustments[i] = (
+                //     toward_center.0 * self.options.cohesion_weight * 0.01
+                //         + swirl_normalized.0 * self.options.swirl_factor * 0.01,
+                //     toward_center.1 * self.options.cohesion_weight * 0.01
+                //         + swirl_normalized.1 * self.options.swirl_factor * 0.01,
+                // );
+            }
+
+            // Apply border avoidance
+            let width = self.options.screen_size.0 as f32;
+            let height = self.options.screen_size.1 as f32;
+            let border_margin = 5.0;
+            let border_strength = self.options.border_factor;
+
+            let mut border_force = (0.0, 0.0);
+            let pos = self.boids[i].position;
+
+            // Left edge
+            if pos.0 < border_margin {
+                border_force.0 += border_strength * (1.0 - pos.0 / border_margin);
+            }
+            // Right edge
+            else if pos.0 > width - border_margin {
+                border_force.0 -=
+                    border_strength * (1.0 - (width - pos.0) / border_margin);
+            }
+
+            // Top edge
+            if pos.1 < border_margin {
+                border_force.1 += border_strength * (1.0 - pos.1 / border_margin);
+            }
+            // Bottom edge
+            else if pos.1 > height - border_margin {
+                border_force.1 -=
+                    border_strength * (1.0 - (height - pos.1) / border_margin);
+            }
+
+            border_adjustments[i] = border_force;
+        }
+
+        // Apply all forces to boids
+        for i in 0..num_boids {
+            // Get current velocity
+            let mut new_vx = self.boids[i].velocity.0;
+            let mut new_vy = self.boids[i].velocity.1;
+
+            // Apply rules
+            new_vx += separation_adjustments[i].0;
+            new_vy += separation_adjustments[i].1;
+
+            new_vx += alignment_adjustments[i].0;
+            new_vy += alignment_adjustments[i].1;
+
+            new_vx += cohesion_adjustments[i].0;
+            new_vy += cohesion_adjustments[i].1;
+
+            new_vx += border_adjustments[i].0;
+            new_vy += border_adjustments[i].1;
+
+            // Apply drive factor
+            let speed = (new_vx * new_vx + new_vy * new_vy).sqrt();
+            if speed > 0.0 {
+                let normalized_vx = new_vx / speed;
+                let normalized_vy = new_vy / speed;
+                new_vx += normalized_vx * self.options.drive_factor * 0.1;
+                new_vy += normalized_vy * self.options.drive_factor * 0.1;
+            }
+
+            // Apply damping for smoother movement
+            new_vx = self.boids[i].velocity.0 * 0.7 + new_vx * 0.3;
+            new_vy = self.boids[i].velocity.1 * 0.7 + new_vy * 0.3;
+
+            // Apply speed limits
+            let speed = (new_vx * new_vx + new_vy * new_vy).sqrt();
+            if speed > self.options.max_speed {
+                let scale = self.options.max_speed / speed;
+                new_vx *= scale;
+                new_vy *= scale;
+            } else if speed < self.options.min_speed && speed > 0.0 {
+                let scale = self.options.min_speed / speed;
+                new_vx *= scale;
+                new_vy *= scale;
+            }
+
+            // Update velocity
+            self.boids[i].velocity = (new_vx, new_vy);
+        }
+    }
+
+    fn update_positions(&mut self) {
+        let width = self.options.screen_size.0 as f32;
+        let height = self.options.screen_size.1 as f32;
+
+        for boid in &mut self.boids {
+            // Update position
+            boid.position.0 += boid.velocity.0;
+            boid.position.1 += boid.velocity.1;
+
+            // Wrap around screen boundaries
+            if boid.position.0 < 0.0 {
+                boid.position.0 += width;
+            } else if boid.position.0 >= width {
+                boid.position.0 -= width;
+            }
+
+            if boid.position.1 < 0.0 {
+                boid.position.1 += height;
+            } else if boid.position.1 >= height {
+                boid.position.1 -= height;
+            }
+
+            // Update visual representation
+            boid.update_visual();
+        }
+    }
+}
+
+impl DefaultOptions for Boids {
+    type Options = BoidsOptions;
+
+    fn default_options(width: u16, height: u16) -> Self::Options {
+        let boid_count = ((width * height) as f32 * 0.5) as u16; // About 1% of screen space
+
+        BoidsOptionsBuilder::default()
+            .screen_size((width, height))
+            .boid_count(boid_count.clamp(50, 300))
+            .build()
+            .unwrap()
+    }
+}
+
+
+---
+File: src/boids/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod effect;
+#[allow(unused)]
+pub use effect::{Boids, BoidsOptions, BoidsOptionsBuilder};
+
+
+---
+File: src/life/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+//! The state of each cell in the next generation is determined by the states
+//! of that cell and its eight neighbors in the current generation:
+//!
+//! Overpopulation:
+//!     If a living cell is surrounded by more than three living cells, it dies.
+//! Underpopulation:
+//!     If a living cell is surrounded by fewer than two living cells, it dies.
+//! Survival:
+//!     If a living cell is surrounded by two or three living cells, it survives.
+//! Birth:
+//!     If a dead cell is surrounded by exactly three living cells,
+//!     it becomes a living cell.
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+use crossterm::style;
+use derive_builder::Builder;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
+static DEAD_CELLS_CHARS: LazyLock<Vec<char>> = LazyLock::new(|| {
+    let characters = "ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍ";
+    let char_vec: Vec<char> = characters.chars().collect();
+    char_vec
+});
+
+#[derive(Builder, Default, Debug, Serialize, Deserialize, Clone)]
+#[builder(public, setter(into))]
+pub struct ConwayLifeOptions {
+    pub initial_cells: u32,
+}
+
+#[derive(Clone)]
+pub struct LifeCell {
+    pub character: char,
+    pub color: style::Color,
+}
+
+pub struct ConwayLife {
+    pub screen_size: (u16, u16),
+    #[allow(dead_code)]
+    options: ConwayLifeOptions,
+    buffer: Buffer,
+    cells: HashMap<(usize, usize), LifeCell>,
+    pub rng: rand::prelude::ThreadRng,
+    pub current_gen: u8,
+}
+
+impl LifeCell {
+    pub fn new(character: char) -> Self {
+        Self {
+            character,
+            color: style::Color::Rgb { r: 0, g: 255, b: 0 },
+        }
+    }
+
+    pub fn update_color_and_char(
+        &mut self,
+        rng: &mut rand::prelude::ThreadRng,
+        current_gen: u8,
+    ) {
+        let green_color = 255_u8.wrapping_sub(current_gen);
+        match current_gen {
+            0..=230 => {
+                self.color = style::Color::Rgb {
+                    r: 0,
+                    g: green_color,
+                    b: 0,
+                }; // Green
+                let random_index = rng.random_range(0..DEAD_CELLS_CHARS.len());
+                self.character = *DEAD_CELLS_CHARS.get(random_index).unwrap();
+            }
+            _ => {
+                self.color = style::Color::Rgb {
+                    r: 0,
+                    g: green_color,
+                    b: 0,
+                };
+                let random_index = rng.random_range(0..DEAD_CELLS_CHARS.len());
+                self.character = *DEAD_CELLS_CHARS.get(random_index).unwrap();
+            }
+        }
+    }
+}
+
+impl TerminalEffect for ConwayLife {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        let mut curr_buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+
+        // fill current buffer
+        self.fill_buffer(&mut curr_buffer);
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
+    }
+
+    fn update(&mut self) {
+        let mut next_cells = HashMap::new();
+
+        // update current generation counter
+        self.current_gen = (self.current_gen + 1) % 255;
+
+        for (index, _) in self.buffer.iter().enumerate() {
+            let neighbors = get_neighbors_by_index(&self.buffer, index);
+            if neighbors.is_empty() {
+                continue;
+            };
+            let (nx, ny) = self.buffer.pos_of(index);
+            let alive_neighbors = neighbors.len();
+
+            if let Some(cell) = self.cells.get_mut(&(nx, ny)) {
+                cell.update_color_and_char(&mut self.rng, self.current_gen);
+
+                // Survival: an alive cell with 2 or 3 alive neighbors stays alive
+                if alive_neighbors == 2 || alive_neighbors == 3 {
+                    next_cells.insert((nx, ny), cell.clone());
+                }
+            } else {
+                // Birth: a dead cell with exactly 3 alive neighbors becomes alive
+                if alive_neighbors == 3 {
+                    let mut new_cell = LifeCell::new('*');
+                    new_cell.update_color_and_char(&mut self.rng, self.current_gen); // Initialize generation and update color/char
+                    next_cells.insert((nx, ny), new_cell);
+                    // Replace 'X' with the desired initial state
+                }
+                // TODO:  here should process state of dead cell
+            };
+        }
+
+        // generate new cells, if cell already present, skip
+        for _ in 0..9 {
+            // Inserting glider at a random position with random rotation
+            let glider_size = 3;
+            let x = self
+                .rng
+                .random_range(2..self.buffer.width - glider_size + 1);
+            let y = self
+                .rng
+                .random_range(2..self.buffer.height - glider_size + 1);
+            let rotation = [0, 90, 180, 270][self.rng.random_range(0..4)];
+            insert_glider(&mut next_cells, x, y, rotation, self.current_gen);
+        }
+        self.cells = next_cells;
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height);
+    }
+
+    fn reset(&mut self) {
+        todo!();
+    }
+}
+
+impl ConwayLife {
+    pub fn new(options: ConwayLifeOptions, screen_size: (u16, u16)) -> Self {
+        let mut rng = rand::rng();
+        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+
+        let mut cells = HashMap::new();
+        for _ in 0..options.initial_cells {
+            let lc = LifeCell::new('*');
+            let x = rng.random_range(0..screen_size.0) as usize;
+            let y = rng.random_range(0..screen_size.1) as usize;
+
+            cells.insert((x, y), lc);
+        }
+
+        Self {
+            screen_size,
+            options,
+            buffer,
+            cells,
+            rng,
+            current_gen: 0,
+        }
+    }
+
+    pub fn fill_buffer(&mut self, buffer: &mut Buffer) {
+        for ((x, y), cell) in self.cells.iter() {
+            buffer.set(
+                *x,
+                *y,
+                Cell::new(cell.character, cell.color, style::Attribute::Bold),
+            )
+        }
+    }
+}
+
+fn insert_glider(
+    cells: &mut HashMap<(usize, usize), LifeCell>,
+    x: usize,
+    y: usize,
+    rotation: i32,
+    current_gen: u8,
+) {
+    let base_glider = [(1, 0), (2, 1), (0, 2), (1, 2), (2, 2)];
+
+    let rotated_glider = base_glider.iter().map(|&(dx, dy)| {
+        match rotation {
+            0 => (x + dx, y + dy),
+            90 => (x + dy, y - dx + 2), // Adjusted for rotation
+            180 => (x - dx + 2, y - dy + 2), // Adjusted for rotation
+            270 => (x - dy, y + dx),    // Adjusted for rotation
+            _ => (x + dx, y + dy),      // Default case, no rotation
+        }
+    });
+
+    let green_color = 255_u8.wrapping_sub(current_gen);
+
+    for coords in rotated_glider {
+        cells.insert(
+            coords,
+            LifeCell {
+                character: '0',
+                color: style::Color::Rgb {
+                    r: 0,
+                    g: green_color,
+                    b: 0,
+                },
+            },
+        );
+    }
+}
+
+pub fn get_neighbors_by_index(buf: &Buffer, index: usize) -> Vec<(usize, Cell)> {
+    let mut neighbors = Vec::new();
+    let (x, y) = buf.pos_of(index);
+    for i in -1..=1 {
+        for j in -1..=1 {
+            if i == 0 && j == 0 {
+                continue; // Skip the cell itself
+            }
+            let nx = x as i32 + i;
+            let ny = y as i32 + j;
+            // Check if the coordinates are within the buffer bounds
+            if nx >= 0 && nx < buf.width as i32 && ny >= 0 && ny < buf.height as i32
+            {
+                let idx = nx as usize + ny as usize * buf.width;
+                let cell = buf.get(nx as usize, ny as usize);
+                if cell.symbol != ' ' {
+                    neighbors.push((idx, cell));
+                }
+            }
+        }
+    }
+    neighbors
+}
+
+#[allow(dead_code)]
+pub fn get_neighbors_by_coords(
+    buf: &Buffer,
+    x: usize,
+    y: usize,
+) -> Vec<(usize, usize, &Cell)> {
+    let mut neighbors = Vec::new();
+    for i in -1..=1 {
+        for j in -1..=1 {
+            if i == 0 && j == 0 {
+                continue; // Skip the cell itself
+            }
+            let nx = x as i32 + i;
+            let ny = y as i32 + j;
+            // Check if the coordinates are within the buffer bounds
+            if nx >= 0 && nx < buf.width as i32 && ny >= 0 && ny < buf.height as i32
+            {
+                neighbors.push((
+                    nx as usize,
+                    ny as usize,
+                    &buf.buffer[nx as usize + ny as usize * buf.width],
+                ));
+            }
+        }
+    }
+    neighbors
+}
+
+impl DefaultOptions for ConwayLife {
+    type Options = ConwayLifeOptions;
+
+    fn default_options(width: u16, height: u16) -> Self::Options {
+        let initial_cells = ((width as u32 * height as u32) as f32 * 0.3) as u32; // 30% of screen space
+
+        ConwayLifeOptionsBuilder::default()
+            .initial_cells(initial_cells)
+            .build()
+            .unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_neighbors_by_index() {
+        let buf = Buffer::new(3, 3);
+
+        for x in 0..3 {
+            for y in 0..3 {
+                let res = get_neighbors_by_index(&buf, buf.index_of(x, y));
+                assert!(res.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn survive_neighbors_by_index() {
+        let mut buf = Buffer::new(3, 3);
+        let cell = Cell::new('*', style::Color::Blue, style::Attribute::Bold);
+        buf.set(0, 0, cell);
+        buf.set(0, 1, cell);
+        buf.set(0, 2, cell);
+
+        let res = get_neighbors_by_index(&buf, buf.index_of(1, 1));
+        assert_eq!(res.len(), 3);
+
+        let res = get_neighbors_by_index(&buf, buf.index_of(0, 0));
+        assert_eq!(res.len(), 1);
+    }
+}
+
+
+---
+File: src/life/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod effect;
+#[allow(unused)]
+pub use effect::{ConwayLife, ConwayLifeOptions, ConwayLifeOptionsBuilder};
+
+
+---
+File: src/pipes/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+use crossterm::style;
+use derive_builder::Builder;
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+
+static LINE_CHARS: LazyLock<Vec<Vec<char>>> = LazyLock::new(|| {
+    vec![
+        // Line type 0 - Regular box drawing
+        vec![' ', '│', '│', '─', '─', '┌', '┐', '└', '┘'],
+        // Line type 1 - Bold box drawing
+        vec![' ', '┃', '┃', '━', '━', '┏', '┓', '┗', '┛'],
+        // Line type 2 - Curved corners
+        vec![' ', '│', '│', '─', '─', '╭', '╮', '╰', '╯'],
+        // Line type 3 - Double characters
+        vec![' ', '║', '║', '═', '═', '╔', '╗', '╚', '╝'],
+        // Line type 4 - Block characters
+        vec![' ', '█', '█', '▄', '▄', '▛', '▜', '▙', '▟'],
+        // Line type 5 - Heavy rounded
+        vec![' ', '┇', '┇', '┅', '┅', '┏', '┓', '┗', '┛'],
+        // Line type 6 - Braille patterns
+        vec![' ', '⠿', '⠿', '⠉', '⠉', '⠏', '⠕', '⠧', '⠽'],
+    ]
+});
+
+#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
+#[builder(public, setter(into))]
+pub struct PipesOptions {
+    #[builder(default = "0.1")]
+    pub turn_probability: f64,
+    #[builder(default = "1")]
+    pub line_type: usize,
+    #[builder(default = "1")]
+    pub num_lines: usize,
+    #[builder(default = "0.3")]
+    pub pipe_type_change: f64,
+    #[builder(default = "0.9")]
+    pub cleanup_factor: f64,
+}
+
+pub struct Pipe {
+    line_type: usize,
+    turn_probability: f64,
+    prev_location: (usize, usize),
+    prev_node_type: usize,
+    next_location: (usize, usize),
+    curr_color: style::Color,
+    pub colors: Vec<style::Color>,
+    pub rng: rand::prelude::ThreadRng,
+}
+
+pub struct Pipes {
+    pub screen_size: (u16, u16),
+    options: PipesOptions,
+    buffer: Buffer,
+    pipes_made: bool,
+    pipes: Vec<Pipe>,
+}
+
+impl TerminalEffect for Pipes {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        // Clone the previous buffer to work with
+        let mut curr_buffer = self.buffer.clone();
+
+        if !self.pipes_made {
+            self.start_new_pipes(&mut curr_buffer);
+        } else {
+            self.continue_pipes(&mut curr_buffer);
+        }
+
+        // Check if cleanup threshold has been reached by counting empty cells
+        let total_cells = self.screen_size.0 as usize * self.screen_size.1 as usize;
+        let mut empty_cells = 0;
+
+        // Count empty cells in current buffer
+        for y in 0..self.screen_size.1 as usize {
+            for x in 0..self.screen_size.0 as usize {
+                if curr_buffer.get(x, y).symbol == ' ' {
+                    empty_cells += 1;
+                }
+            }
+        }
+
+        // Calculate empty space percentage
+        let empty_percentage = empty_cells as f64 / total_cells as f64;
+
+        // If empty space is less than (1 - cleanup_factor), reset
+        if empty_percentage < (1.0 - self.options.cleanup_factor) {
+            let diff = self.buffer.diff(&Buffer::new(
+                self.screen_size.0 as usize,
+                self.screen_size.1 as usize,
+            ));
+            self.reset();
+            return diff;
+        }
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+
+        diff
+    }
+
+    fn update(&mut self) {
+        // No additional state updates needed between frames
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height);
+        self.reset();
+    }
+
+    fn reset(&mut self) {
+        self.buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+        self.pipes_made = false;
+    }
+}
+
+impl Pipe {
+    fn start_new_pipe(
+        &mut self,
+        buffer: &mut Buffer,
+        width: usize,
+        height: usize,
+        pipe_type_change: f64,
+    ) {
+        if self.rng.random_bool(pipe_type_change) {
+            self.line_type = self.rng.random_range(0..LINE_CHARS.len());
+        }
+
+        let edge = self.rng.random_range(0..4);
+
+        let (pos, direction) = match edge {
+            0 => {
+                // Top edge
+                let x = self.rng.random_range(0..width);
+                ((x, 0), (0, 1))
+            }
+            1 => {
+                // Right edge
+                let y = self.rng.random_range(0..height);
+                ((width - 1, y), (-1, 0))
+            }
+            2 => {
+                // Bottom edge
+                let x = self.rng.random_range(0..width);
+                ((x, height - 1), (0, -1))
+            }
+            3 => {
+                // Left edge
+                let y = self.rng.random_range(0..height);
+                ((0, y), (1, 0))
+            }
+            _ => unreachable!(),
+        };
+
+        // Choose a random color
+        self.curr_color = self.colors[self.rng.random_range(0..self.colors.len())];
+
+        let node_type = match direction {
+            (0, 1) | (0, -1) => 1, // Vertical
+            (1, 0) | (-1, 0) => 3, // Horizontal
+            _ => unreachable!(),
+        };
+
+        // Set initial node
+        buffer.set(
+            pos.0,
+            pos.1,
+            Cell::new(
+                self.get_line_char(node_type),
+                self.curr_color,
+                style::Attribute::Bold,
+            ),
+        );
+
+        self.prev_location = pos;
+        self.prev_node_type = node_type;
+
+        self.next_location = (
+            (pos.0 as i32 + direction.0) as usize,
+            (pos.1 as i32 + direction.1) as usize,
+        );
+    }
+
+    fn continue_pipe(
+        &mut self,
+        buffer: &mut Buffer,
+        width: usize,
+        height: usize,
+        pipe_type_change: f64,
+    ) -> bool {
+        // Check if reaches edge
+        if self.next_location.0 >= width || self.next_location.1 >= height {
+            self.start_new_pipe(buffer, width, height, pipe_type_change);
+            return true;
+        }
+
+        let current_dir = self.get_direction();
+
+        let turn = self.rng.random_range(0.0..1.0) < self.turn_probability;
+
+        let (next_dir, node_type) = if turn {
+            self.get_turn_direction_and_node(current_dir)
+        } else {
+            (
+                current_dir,
+                match current_dir {
+                    (0, 1) | (0, -1) => 1, // Vertical
+                    (1, 0) | (-1, 0) => 3, // Horizontal
+                    _ => unreachable!(),
+                },
+            )
+        };
+
+        buffer.set(
+            self.next_location.0,
+            self.next_location.1,
+            Cell::new(
+                self.get_line_char(node_type),
+                self.curr_color,
+                style::Attribute::Bold,
+            ),
+        );
+
+        // Update state for next iteration
+        self.prev_location = self.next_location;
+        self.prev_node_type = node_type;
+
+        self.next_location = (
+            (self.next_location.0 as i32 + next_dir.0) as usize,
+            (self.next_location.1 as i32 + next_dir.1) as usize,
+        );
+        false
+    }
+
+    fn get_line_char(&self, node_type: usize) -> char {
+        // default line_type to 0
+        let line_type = if self.line_type < LINE_CHARS.len() {
+            self.line_type
+        } else {
+            0
+        };
+
+        LINE_CHARS[line_type].get(node_type).copied().unwrap_or('?')
+    }
+
+    // Get the current direction based on previous node and location
+    fn get_direction(&self) -> (i32, i32) {
+        match self.prev_node_type {
+            1 | 2 => {
+                // Vertical pipe
+                if self.next_location.1 > self.prev_location.1 {
+                    (0, 1) // Down
+                } else {
+                    (0, -1) // Up
+                }
+            }
+            3 | 4 => {
+                // Horizontal pipe
+                if self.next_location.0 > self.prev_location.0 {
+                    (1, 0) // Right
+                } else {
+                    (-1, 0) // Left
+                }
+            }
+            5 => {
+                // ┏ Top-left corner
+                if self.next_location.0 > self.prev_location.0 {
+                    (1, 0) // Right
+                } else {
+                    (0, 1) // Down
+                }
+            }
+            6 => {
+                // ┓ Top-right corner
+                if self.next_location.0 < self.prev_location.0 {
+                    (-1, 0) // Left
+                } else {
+                    (0, 1) // Down
+                }
+            }
+            7 => {
+                // ┗ Bottom-left corner
+                if self.next_location.0 > self.prev_location.0 {
+                    (1, 0) // Right
+                } else {
+                    (0, -1) // Up
+                }
+            }
+            8 => {
+                // ┛ Bottom-right corner
+                if self.next_location.0 < self.prev_location.0 {
+                    (-1, 0) // Left
+                } else {
+                    (0, -1) // Up
+                }
+            }
+            _ => (0, 0), // Nope
+        }
+    }
+
+    // Get a new direction and node type when turning
+    fn get_turn_direction_and_node(
+        &mut self,
+        current_dir: (i32, i32),
+    ) -> ((i32, i32), usize) {
+        match current_dir {
+            (0, 1) => {
+                // Moving down
+                if self.rng.random_bool(0.5) {
+                    ((1, 0), 7) // Turn right -> ┗
+                } else {
+                    ((-1, 0), 8) // Turn left -> ┛
+                }
+            }
+            (0, -1) => {
+                // Moving up
+                if self.rng.random_bool(0.5) {
+                    ((1, 0), 5) // Turn right -> ┏
+                } else {
+                    ((-1, 0), 6) // Turn left -> ┓
+                }
+            }
+            (1, 0) => {
+                // Moving right
+                if self.rng.random_bool(0.5) {
+                    ((0, 1), 6) // Turn down -> ┓
+                } else {
+                    ((0, -1), 8) // Turn up -> ┛
+                }
+            }
+            (-1, 0) => {
+                // Moving left
+                if self.rng.random_bool(0.5) {
+                    ((0, 1), 5) // Turn down -> ┏
+                } else {
+                    ((0, -1), 7) // Turn up -> ┗
+                }
+            }
+            _ => ((0, 0), 1), // Nope
+        }
+    }
+}
+
+impl Pipes {
+    pub fn new(options: PipesOptions, screen_size: (u16, u16)) -> Self {
+        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+        let colors = vec![
+            style::Color::Red,
+            style::Color::Green,
+            style::Color::Blue,
+            style::Color::Yellow,
+            style::Color::Cyan,
+            style::Color::Magenta,
+        ];
+
+        let mut pipes = Vec::with_capacity(options.num_lines);
+        for _ in 0..options.num_lines {
+            pipes.push(Pipe {
+                line_type: options.line_type,
+                turn_probability: options.turn_probability,
+                prev_location: (0, 0),
+                prev_node_type: 0,
+                next_location: (0, 0),
+                curr_color: style::Color::White,
+                colors: colors.clone(),
+                rng: rand::rng(),
+            });
+        }
+
+        Self {
+            screen_size,
+            options,
+            buffer,
+            pipes_made: false,
+            pipes,
+        }
+    }
+
+    // Start a new pipe from a random edge location
+    fn start_new_pipes(&mut self, buffer: &mut Buffer) {
+        let width = self.screen_size.0 as usize;
+        let height = self.screen_size.1 as usize;
+
+        for pipe in &mut self.pipes {
+            pipe.start_new_pipe(
+                buffer,
+                width,
+                height,
+                self.options.pipe_type_change,
+            );
+        }
+
+        self.pipes_made = true;
+    }
+
+    // Continue an existing pipe
+    fn continue_pipes(&mut self, buffer: &mut Buffer) {
+        let width = self.screen_size.0 as usize;
+        let height = self.screen_size.1 as usize;
+
+        for pipe in &mut self.pipes {
+            pipe.continue_pipe(
+                buffer,
+                width,
+                height,
+                self.options.pipe_type_change,
+            );
+        }
+    }
+}
+
+impl DefaultOptions for Pipes {
+    type Options = PipesOptions;
+
+    fn default_options(_width: u16, _height: u16) -> Self::Options {
+        PipesOptionsBuilder::default()
+            .turn_probability(0.2)
+            .line_type(2usize)
+            .num_lines(5usize)
+            .cleanup_factor(0.9)
+            .build()
+            .unwrap()
+    }
+}
+
+
+---
+File: src/pipes/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod effect;
+#[allow(unused)]
+pub use effect::{Pipes, PipesOptions, PipesOptionsBuilder};
+
+
+---
+File: src/blank/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::{Buffer, Cell};
+use crate::common::TerminalEffect;
+use crossterm::style;
+use derive_builder::Builder;
+
+#[derive(Builder, Default, Debug, Clone)]
+#[builder(public, setter(into))]
+pub struct BlankOptions {}
+
+#[allow(dead_code)]
+pub struct Blank {
+    screen_size: (u16, u16),
+    options: BlankOptions,
+    buffer: Buffer,
+}
+
+impl TerminalEffect for Blank {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        let mut curr_buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+
+        curr_buffer.fill_with(&Cell {
+            symbol: '#',
+            color: style::Color::Green,
+            attr: style::Attribute::Reset,
+        });
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
+    }
+
+    fn update(&mut self) {}
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height)
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new(self.options.clone(), self.screen_size);
+    }
+}
+
+impl Blank {
+    pub fn new(options: BlankOptions, screen_size: (u16, u16)) -> Self {
+        let mut buffer =
+            Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+
+        buffer.fill_with(&Cell {
+            symbol: '#',
+            color: style::Color::Green,
+            attr: style::Attribute::Reset,
+        });
+
+        Self {
+            screen_size,
+            options,
+            buffer,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // use super::*;
+
+    #[test]
+    fn blank_test() {}
+}
+
+
+---
+File: src/blank/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod effect;
+pub use effect::{Blank, BlankOptionsBuilder};
+
+
+---
+File: src/maze/effect.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::{Buffer, Cell};
+use crate::common::{DefaultOptions, TerminalEffect};
+use crossterm::style;
+use derive_builder::Builder;
+use rand::{Rng, seq::SliceRandom};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::LazyLock,
+};
+
+/// Characters in form of hashmap with label as key
+static CHARACTERS_MAP: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    let mut m = HashMap::new();
+    m.insert("punctuation", r#":."=*+-<>"#);
+    m.insert("katakana", "ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍ");
+    m.insert("other", "¦çﾘｸ");
+    m
+});
+
+/// Characters to draw more interesing view
+static CHARACTERS: LazyLock<Vec<char>> = LazyLock::new(|| {
+    let mut v = Vec::new();
+    for (_, chars) in CHARACTERS_MAP.iter() {
+        v.append(&mut chars.chars().collect());
+    }
+    v
+});
+
+#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
+#[builder(public, setter(into))]
+pub struct MazeOptions {}
+
+pub struct Maze {
+    pub screen_size: (u16, u16),
+    options: MazeOptions,
+    buffer: Buffer,
+    initial_walls: Buffer,
+    paths: HashSet<(usize, usize)>,
+    stack: VecDeque<(isize, isize)>,
+    maze_complete: bool,
+    pub rng: rand::prelude::ThreadRng,
+}
+
+impl TerminalEffect for Maze {
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        if self.maze_complete {
+            self.reset();
+            return Vec::new();
+        }
+        let mut curr_buffer = self.initial_walls.clone();
+        let mut modified_cells = HashSet::new();
+        // Randomly change 5 distinct cells
+        while modified_cells.len() < 3 {
+            let x = self.rng.random_range(0..curr_buffer.width);
+            let y = self.rng.random_range(0..curr_buffer.height);
+
+            if modified_cells.insert((x, y)) {
+                let random_char =
+                    CHARACTERS[self.rng.random_range(0..CHARACTERS.len())];
+                let random_color = style::Color::Rgb {
+                    r: self.rng.random_range(0..200) as u8,
+                    g: self.rng.random_range(0..256) as u8,
+                    b: self.rng.random_range(0..200) as u8,
+                };
+                self.initial_walls.set(
+                    x,
+                    y,
+                    Cell::new(random_char, random_color, style::Attribute::Bold),
+                );
+            }
+        }
+
+        for (x, y) in self.paths.iter() {
+            curr_buffer.set(
+                *x,
+                *y,
+                Cell::new('█', style::Color::White, style::Attribute::Reset),
+            )
+        }
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
+    }
+
+    fn update(&mut self) {
+        if self.maze_complete {
+            return;
+        }
+
+        if let Some((x, y)) = self.stack.pop_back() {
+            let directions = [(2, 0), (0, 2), (-2, 0), (0, -2)]; // Skip one cell to maintain walls
+            let mut shuffled_directions = directions;
+            shuffled_directions.shuffle(&mut self.rng);
+
+            let mut moved = false;
+            for &(dx, dy) in &shuffled_directions {
+                let new_x = x + dx;
+                let new_y = y + dy;
+
+                // Check the cell to be carved and the wall between the current and new cell
+                if self.is_valid_cell(new_x, new_y)
+                    && self.is_valid_cell(x + dx / 2, y + dy / 2)
+                    && !self.paths.contains(&(new_x as usize, new_y as usize))
+                {
+                    // Carve path for both the new cell and the wall between
+                    self.carve_path(new_x, new_y);
+                    self.carve_path(x + dx / 2, y + dy / 2);
+                    // Push the current position back for backtracking
+                    self.stack.push_back((x, y));
+                    self.stack.push_back((new_x, new_y)); // Push the new position
+                    moved = true;
+                    break;
+                }
+            }
+
+            if !moved {
+                // If we didn't move, it means we're at a dead-end and need to backtrack
+                self.stack.pop_back();
+            }
+        } else {
+            // If the stack is empty, the maze is complete
+            self.maze_complete = true;
+        }
+    }
+
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width, height);
+    }
+
+    fn reset(&mut self) {
+        let mut new_effect = Self::new(self.options.clone(), self.screen_size);
+        fill_initial_walls(&mut new_effect.initial_walls);
+        new_effect.maze_complete = false;
+        new_effect.paths.clear();
+        new_effect.stack.clear();
+        new_effect.rng = rand::rng();
+
+        let start_x = new_effect.rng.random_range(0..self.screen_size.0);
+        let start_y = new_effect.rng.random_range(0..self.screen_size.1);
+        new_effect
+            .stack
+            .push_back((start_x as isize, start_y as isize));
+        *self = new_effect;
+    }
+}
+
+impl Maze {
+    pub fn new(options: MazeOptions, screen_size: (u16, u16)) -> Self {
+        let mut rng = rand::rng();
+        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
+
+        let paths = HashSet::new();
+        let start_x = rng.random_range(0..screen_size.0);
+        let start_y = rng.random_range(0..screen_size.1);
+        let mut stack = VecDeque::new();
+        stack.push_back((start_x as isize, start_y as isize));
+
+        let mut initial_walls = buffer.clone();
+        fill_initial_walls(&mut initial_walls);
+
+        Self {
+            screen_size,
+            options,
+            buffer,
+            initial_walls,
+            paths,
+            stack,
+            maze_complete: false,
+            rng,
+        }
+    }
+
+    fn is_valid_cell(&self, x: isize, y: isize) -> bool {
+        x >= 0
+            && y >= 0
+            && (x as usize) < (self.screen_size.0 as usize)
+            && (y as usize) < (self.screen_size.1 as usize)
+    }
+
+    fn carve_path(&mut self, x: isize, y: isize) {
+        self.paths.insert((x as usize, y as usize));
+    }
+}
+
+fn fill_initial_walls(buffer: &mut Buffer) {
+    let mut rng = rand::rng();
+    for y in 0..buffer.height {
+        for x in 0..buffer.width {
+            let random_char = CHARACTERS[rng.random_range(0..CHARACTERS.len())];
+            let random_color = style::Color::Rgb {
+                r: rng.random_range(0..120) as u8,
+                g: rng.random_range(0..256) as u8,
+                b: rng.random_range(0..120) as u8,
+            };
+            buffer.set(
+                x,
+                y,
+                Cell::new(random_char, random_color, style::Attribute::Bold),
+            );
+        }
+    }
+}
+
+impl DefaultOptions for Maze {
+    type Options = MazeOptions;
+
+    fn default_options(_width: u16, _height: u16) -> Self::Options {
+        MazeOptionsBuilder::default().build().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_initial_state() {
+        let options = MazeOptionsBuilder::default().build().unwrap();
+        let maze = Maze::new(options, (3, 3));
+
+        // buffer correctly initialized
+        let mut initialized_cells = 0;
+        for cell in maze.buffer.iter() {
+            if cell.symbol != ' ' {
+                initialized_cells += 1;
+            }
+        }
+        assert_eq!(initialized_cells, 0);
+        assert_eq!(maze.initial_walls.buffer.len(), 9);
+
+        // path and stack are empty, and maze is not completed
+        assert!(maze.paths.is_empty());
+        assert!(maze.stack.len() == 1);
+        assert!(!maze.maze_complete);
+    }
+
+    #[test]
+    fn check_flow() {
+        let options = MazeOptionsBuilder::default().build().unwrap();
+        let mut maze = Maze::new(options, (5, 5));
+        maze.update();
+        let diff = maze.get_diff();
+        assert_eq!(diff.len(), 25);
+
+        // buffer correctly processed
+        let mut path_cells = 0;
+        for cell in maze.buffer.iter() {
+            if cell.symbol != '█' {
+                path_cells += 1;
+            }
+        }
+        assert_eq!(path_cells, 23);
+    }
+}
+
+
+---
+File: src/maze/mod.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+pub mod effect;
+pub use effect::{Maze, MazeOptions, MazeOptionsBuilder};
+
+
+---
+File: src/main.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+//! # tarts
+//!
+//! `tarts` or TerminalArts is a collection of terminal-based screen savers written
+//! in Rust. This crate provides a variety of screen savers like "Matrix Rain",
+//! "Conway's Game of Life", and "Maze Generation" (not yet), all running directly
+//! in your terminal.
+//!
+//! ## Features
+//!
+//! - Matrix Rain: Simulates the famous "Matrix" digital rain effect in your terminal.
+//! - Conway's Game of Life: Implements the classic cellular automaton in the terminal.
+//! - Maze Generation: Generates and displays a random maze.
+//! - Boids
+//!
+//! ## Usage
+//!
+//! To use the screen savers, run the executable with the desired screen saver's
+//! name as an argument:
+//!
+//! ```bash
+//! tarts matrix
+//! tarts life
+//! tarts maze
+//! tarts boids
+//! tarts cube
+//! tarts crab
+//! ```
+//!
+//! ## Installation
+//!
+//! Install directly using cargo:
+//!
+//! ```bash
+//! cargo install tarts
+//! ```
+//!
+//! ## Configuration
+//!
+//! The screen savers can be configured via command line arguments
+//! (planning to add configuration file).
+//!
+//! ## Contributing
+//!
+//! Contributions are welcome! Please feel free to submit pull requests,
+//! report bugs, and suggest features.
+//!
+//! ## License
+//!
+//! This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
+//!
+#![cfg(not(test))]
+use crossterm::{self, cursor, execute, terminal};
+// use tarts::{config, rain};
+// use log::info;
+use crate::common::DefaultOptions;
+use std::{io, process};
+
+mod blank;
+mod boids;
+mod buffer;
+mod check;
+mod common;
+mod config;
+mod crab;
+mod cube;
+mod error;
+mod life;
+mod maze;
+mod rain;
+
+mod donut;
+mod pipes;
+mod plasma;
+
+use crate::config::Config;
+
+const HELP: &str = "Terminal screensavers, run with arg:\n\
+     matrix, life, maze, boids,\n\
+     cube, crab, donut, pipes, plasma";
+const VALID_SAVERS: &[&str] = &[
+    "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
+    "plasma",
+];
+
+#[derive(Debug)]
+struct AppArgs {
+    screen_saver: String,
+    check: bool,
+    effect: Option<String>,
+    frames: Option<usize>,
+}
+
+/// Guard to drop out alternate screen in case of errors
+struct TerminalGuard {
+    stdout: io::Stdout,
+}
+
+impl TerminalGuard {
+    fn new() -> Result<Self, io::Error> {
+        let mut stdout = io::stdout();
+        terminal::enable_raw_mode()?;
+        execute!(
+            stdout,
+            terminal::EnterAlternateScreen,
+            cursor::Hide,
+            terminal::Clear(terminal::ClearType::All)
+        )?;
+
+        Ok(Self { stdout })
+    }
+
+    // Get mutable access to the stdout
+    fn get_stdout(&mut self) -> &mut io::Stdout {
+        &mut self.stdout
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        // Ignore errors during drop - we're doing best effort cleanup
+        let _ = execute!(
+            self.stdout,
+            cursor::Show,
+            terminal::Clear(terminal::ClearType::All),
+            terminal::LeaveAlternateScreen,
+        );
+        let _ = terminal::disable_raw_mode();
+    }
+}
+
+fn main() -> Result<(), error::TartsError> {
+    env_logger::init();
+    // let config = Config::load()?;
+
+    let args = match parse_args() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error parsing args: {}", e);
+            process::exit(1);
+        }
+    };
+
+    if args.check {
+        let effect = args.effect.unwrap_or_else(|| "matrix".to_string());
+        let frames = args.frames.unwrap_or(1);
+        return check::run_test_for_effect(&effect, frames);
+    }
+
+    // Check if valid before entering alternate screen
+    if !VALID_SAVERS.contains(&args.screen_saver.as_str()) {
+        println!("Unknown screen saver: {}", args.screen_saver);
+        println!("{}", HELP);
+        return Ok(());
+    }
+
+    let fps = {
+        let mut guard = TerminalGuard::new()?;
+        let (width, height) = terminal::size()?;
+
+        match args.screen_saver.as_str() {
+            "matrix" => {
+                // let options = config.get_matrix_options((width, height));
+                let options =
+                    rain::digital_rain::DigitalRain::default_options(width, height);
+                let mut digital_rain =
+                    rain::digital_rain::DigitalRain::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut digital_rain, None)?
+            }
+            "life" => {
+                // let options = config.get_life_options((width, height));
+                let options = life::ConwayLife::default_options(width, height);
+                let mut conway_life =
+                    life::ConwayLife::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut conway_life, None)?
+            }
+            "maze" => {
+                // let options = config.get_maze_options((width, height));
+                let options = maze::Maze::default_options(width, height);
+                let mut maze = maze::Maze::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut maze, None)?
+            }
+            "boids" => {
+                // let options = config.get_boids_options((width, height));
+                let options = boids::Boids::default_options(width, height);
+                let mut boids = boids::Boids::new(options);
+                common::run_loop(guard.get_stdout(), &mut boids, None)?
+            }
+            "blank" => {
+                let options =
+                    blank::BlankOptionsBuilder::default().build().unwrap();
+                let mut check = blank::Blank::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut check, None)?
+            }
+            "cube" => {
+                // let options = config.get_cube_options();
+                let options = cube::effect::Cube::default_options(width, height);
+                let mut cube = cube::Cube::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut cube, None)?
+            }
+            "crab" => {
+                let options = crab::Crab::default_options(width, height);
+                let mut crab = crab::Crab::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut crab, None)?
+            }
+            "donut" => {
+                let options = donut::Donut::default_options(width, height);
+                let mut donut = donut::Donut::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut donut, None)?
+            }
+            "pipes" => {
+                let options = pipes::Pipes::default_options(width, height);
+                let mut pipes = pipes::Pipes::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut pipes, None)?
+            }
+            "plasma" => {
+                let options = plasma::Plasma::default_options(width, height);
+                let mut plasma = plasma::Plasma::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut plasma, None)?
+            }
+            _ => {
+                println!(
+                    "Pick screensaver: [matrix, life, maze, boids, cube, crab, donut]"
+                );
+                0.0
+            }
+        }
+    };
+
+    println!("Frames per second: {}", fps);
+    Ok(())
+}
+
+fn parse_args() -> Result<AppArgs, pico_args::Error> {
+    let mut pargs = pico_args::Arguments::from_env();
+
+    if pargs.contains(["-h", "--help"]) {
+        print!("{}", HELP);
+        process::exit(0);
+    }
+
+    // Add this check
+    if pargs.contains("--generate-config") {
+        if let Err(e) = Config::save_default_config() {
+            eprintln!("Failed to generate config: {}", e);
+            process::exit(1);
+        }
+        println!("Default configuration generated successfully");
+        process::exit(0);
+    }
+
+    let check = pargs.contains("--check");
+    let effect = pargs.opt_value_from_str("--effect")?;
+    let frames = pargs.opt_value_from_str("--frames")?;
+
+    let args = AppArgs {
+        screen_saver: pargs.free_from_str().map_or("matrix".into(), |arg| arg),
+        check,
+        effect,
+        frames,
+    };
+
+    let remaining = pargs.finish();
+    if !remaining.is_empty() {
+        eprintln!("Warning: unused arguments left: {:?}", remaining);
+    }
+
+    Ok(args)
+}
+
+
+---
+File: src/buffer.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crossterm::style;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cell {
+    pub symbol: char,
+    pub color: style::Color,
+    pub attr: style::Attribute,
+}
+
+/// Buffer implementation, coordinates unlike in crossterm started from [0, 0]
+#[derive(Clone)]
+pub struct Buffer {
+    pub width: usize,
+    pub height: usize,
+    pub buffer: Vec<Cell>,
+}
+
+impl Cell {
+    pub fn new(symbol: char, color: style::Color, attr: style::Attribute) -> Self {
+        Self {
+            symbol,
+            color,
+            attr,
+        }
+    }
+}
+
+impl Default for Cell {
+    fn default() -> Self {
+        Self {
+            symbol: ' ',
+            color: style::Color::Black,
+            attr: style::Attribute::Reset,
+        }
+    }
+}
+
+impl Buffer {
+    // Keep in mind!
+    // Indexing from 0: 0 1 2 3 4  | Square: 16
+    // Indexing from 1: 1 2 3 4 5  | Square: 25
+    // Need to check width of height are greater than zero
+    pub fn new(width: usize, height: usize) -> Self {
+        // fill buffer with dafault values
+        debug_assert!(width > 0 && height > 0);
+        Self {
+            width,
+            height,
+            buffer: vec![Cell::default(); width * height],
+        }
+    }
+
+    pub fn fill_with(&mut self, cell: &Cell) {
+        self.buffer.fill(*cell);
+    }
+
+    pub fn get_size(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+
+    #[inline]
+    pub fn set(&mut self, x: usize, y: usize, cell: Cell) {
+        debug_assert!(x < self.width && y < self.height);
+        let index = self.index_of(x, y);
+        self.buffer[index] = cell;
+    }
+
+    pub fn get(&self, x: usize, y: usize) -> Cell {
+        let index = self.index_of(x, y);
+        self.buffer[index]
+    }
+
+    #[inline]
+    pub fn index_of(&self, x: usize, y: usize) -> usize {
+        y * self.width + x
+    }
+
+    #[inline]
+    pub fn pos_of(&self, i: usize) -> (usize, usize) {
+        (i % self.width, i / self.width)
+    }
+
+    // Return x, y and Cell
+    pub fn diff(&self, other: &Buffer) -> Vec<(usize, usize, Cell)> {
+        let prev_buffer = &self.buffer;
+        let next_buffer = &other.buffer;
+
+        let mut updates: Vec<(usize, usize, Cell)> = vec![];
+
+        for (i, (curr, prev)) in
+            next_buffer.iter().zip(prev_buffer.iter()).enumerate()
+        {
+            if curr != prev {
+                let (x, y) = self.pos_of(i);
+                debug_assert!(x < self.width && y < self.height);
+                updates.push((x, y, next_buffer[i]));
+            }
+        }
+
+        updates
+    }
+
+    #[allow(dead_code)]
+    pub fn iter(&self) -> std::slice::Iter<Cell> {
+        self.buffer.iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_new() {
+        let buf = Buffer::new(5, 4);
+        assert_eq!(buf.width, 5);
+        assert_eq!(buf.height, 4);
+
+        let size = buf.buffer.len();
+        assert_eq!(size, 20);
+    }
+
+    #[test]
+    fn diff() {
+        let mut buf = Buffer::new(3, 3);
+        let point = buf.index_of(0, 0);
+        buf.buffer[point] =
+            Cell::new('b', style::Color::Green, style::Attribute::NormalIntensity);
+        let point = buf.index_of(0, 1);
+        buf.buffer[point] =
+            Cell::new('a', style::Color::Green, style::Attribute::NormalIntensity);
+
+        let mut next_buf = Buffer::new(3, 3);
+        let point = buf.index_of(0, 0);
+        next_buf.buffer[point] = Cell::new(
+            'c',
+            style::Color::DarkGreen,
+            style::Attribute::NormalIntensity,
+        );
+        let point = buf.index_of(0, 1);
+        next_buf.buffer[point] =
+            Cell::new('b', style::Color::Green, style::Attribute::NormalIntensity);
+        let point = buf.index_of(0, 2);
+        next_buf.buffer[point] =
+            Cell::new('a', style::Color::Green, style::Attribute::NormalIntensity);
+
+        let diff = buf.diff(&next_buf);
+        assert_eq!(diff.len(), 3);
+    }
+}
+
+
+---
+File: src/common.rs
+Last commit: addcb9afbaeb1ba7cfe168b81ca0d92fafea31b0
+Last update: 1751037551
+---
+use crate::buffer::Cell;
+use crossterm::{
+    QueueableCommand, cursor, event,
+    style::{self, Stylize},
+    terminal,
+};
+use std::{
+    io::{BufWriter, Result, Write},
+    time::Duration,
+};
+
+pub trait DefaultOptions {
+    type Options;
+
+    /// Calculate default options based on terminal dimensions
+    #[allow(unused)]
+    fn default_options(width: u16, height: u16) -> Self::Options;
+}
+
+pub trait TerminalEffect {
+    /// get difference between frames, this is used to minimize screen updates
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)>;
+    /// Update to next frame
+    fn update(&mut self);
+    // Update screen size option, each saver should implement it by itself
+    fn update_size(&mut self, width: u16, height: u16);
+    /// Reset effect, i think it's useful in case of size/options update
+    fn reset(&mut self);
+}
+
+pub fn process_input() -> Result<bool> {
+    if event::poll(Duration::from_millis(10))? {
+        if let event::Event::Key(keyevent) = event::read()? {
+            if keyevent
+                == event::KeyEvent::new(
+                    event::KeyCode::Char('q'),
+                    event::KeyModifiers::NONE,
+                )
+                || keyevent
+                    == event::KeyEvent::new(
+                        event::KeyCode::Esc,
+                        event::KeyModifiers::NONE,
+                    )
+                || keyevent
+                    == event::KeyEvent::new(
+                        event::KeyCode::Char('c'),
+                        event::KeyModifiers::CONTROL,
+                    )
+            {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+pub fn run_loop<W, TE>(
+    stdout: &mut W,
+    effect: &mut TE,
+    iterations: Option<usize>,
+) -> Result<f64>
+where
+    W: Write,
+    TE: TerminalEffect,
+{
+    let (width, height) = terminal::size()?;
+
+    // #[cfg(test)]
+    let mut iters: usize = 0;
+
+    let mut is_running = true;
+    let mut frames_per_second = 0.0;
+    let target_frame_duration = Duration::from_secs_f64(1.0 / 60.0_f64);
+
+    // wrap in buffer due to tests "run_loop_fps_gte_0" failing on CI/CD
+    // NOTE: 12/Dec/2023 issue with tests of CI/CD still not resolved
+    let mut buffered_stdout = BufWriter::new(stdout);
+
+    // main loop
+    while is_running {
+        let started_at: std::time::SystemTime = std::time::SystemTime::now();
+        is_running = process_input()?;
+
+        #[allow(clippy::single_match)]
+        while event::poll(Duration::from_millis(10))? {
+            match event::read()? {
+                event::Event::Resize(new_width, new_height) => {
+                    // Update size and reset effect
+                    effect.update_size(new_width, new_height);
+                    effect.reset();
+                }
+                _ => {}
+            }
+        }
+
+        // draw diff
+        let queue = effect.get_diff();
+        for item in queue.iter() {
+            let (x, y, cell) = item;
+            debug_assert!(*x < width as usize && *y < height as usize);
+            buffered_stdout.queue(cursor::MoveTo(*x as u16, *y as u16))?;
+            buffered_stdout.queue(style::PrintStyledContent(
+                cell.symbol.with(cell.color).attribute(cell.attr),
+            ))?;
+        }
+        buffered_stdout.flush()?;
+        effect.update();
+
+        // stabilize fps if requred
+        let ended_at = std::time::SystemTime::now();
+        let delta = ended_at
+            .duration_since(started_at)
+            .unwrap_or(std::time::Duration::from_secs(0));
+        if delta < target_frame_duration {
+            std::thread::sleep(target_frame_duration - delta);
+        };
+
+        // calculate actual frame rate
+        let ended_at = std::time::SystemTime::now();
+        let delta = ended_at
+            .duration_since(started_at)
+            .unwrap_or(std::time::Duration::from_secs(0));
+        frames_per_second = (frames_per_second + (1.0 / delta.as_secs_f64())) / 2.0;
+
+        if delta < target_frame_duration {
+            std::thread::sleep(target_frame_duration - delta);
+        }
+
+        // #[cfg(test)]
+        if let Some(iterations) = iterations {
+            iters += 1;
+            if iters > iterations {
+                is_running = false;
+            }
+        };
+    }
+    Ok(frames_per_second)
+}
+
+

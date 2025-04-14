@@ -8,6 +8,7 @@ pub mod crab;
 pub mod cube;
 pub mod donut;
 pub mod error;
+pub mod fire;
 pub mod life;
 pub mod maze;
 pub mod pipes;
