@@ -1,5 +1,5 @@
 /target
-Cargo.lock
+.direnv
 
 # profiling/coverage garbage
 *.profraw
