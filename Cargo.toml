@@ -12,7 +12,7 @@ homepage = "https://github.com/oiwn/tui-screen-savers-rs"
 
 [dependencies]
 crossterm = "0.29"
-derive_builder = 0.20"
+derive_builder = "0.20"
 directories = "6.0"
 env_logger = "0.11"
 log = "0.4"
