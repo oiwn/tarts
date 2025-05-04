@@ -1,5 +1,4 @@
 /target
-Cargo.lock
 
 # profiling/coverage garbage
 *.profraw
