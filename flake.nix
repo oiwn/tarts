@@ -4,19 +4,22 @@
     utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    utils,
-  }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      utils,
+    }:
     utils.lib.eachDefaultSystem (
-      system: let
-        pkgs = import nixpkgs {inherit system;};
-      in {
+      system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+      in
+      {
         formatter = pkgs.nixfmt-tree;
-        packages = rec { 
+        packages = rec {
           default = tarts;
-          tarts = 
+          tarts =
             let
               manifest = pkgs.lib.importTOML ./Cargo.toml;
             in
