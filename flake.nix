@@ -13,6 +13,7 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
       in {
+        formatter = pkgs.nixfmt-tree;
         packages = rec { 
           default = tarts;
           tarts = 
