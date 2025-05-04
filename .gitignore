@@ -1,5 +1,4 @@
 /target
-.direnv
 
 # profiling/coverage garbage
 *.profraw
@@ -11,3 +10,4 @@ tags
 code.txt
 .DS_Store
 .amc.toml
+.direnv
