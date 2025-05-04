@@ -13,16 +13,20 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
       in {
-        defaultPackage = let
-          manifest = pkgs.lib.importTOML ./Cargo.toml;
-        in
-          pkgs.rustPlatform.buildRustPackage {
-            pname = manifest.package.name;
-            version = manifest.package.version;
+        packages = rec { 
+          default = tarts;
+          tarts = 
+            let
+              manifest = pkgs.lib.importTOML ./Cargo.toml;
+            in
+            pkgs.rustPlatform.buildRustPackage {
+              pname = manifest.package.name;
+              version = manifest.package.version;
 
-            src = pkgs.lib.cleanSource ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-          };
+              src = pkgs.lib.cleanSource ./.;
+              cargoLock.lockFile = ./Cargo.lock;
+            };
+        };
         devShell = pkgs.mkShell {
           buildInputs = with pkgs; [
             cargo
