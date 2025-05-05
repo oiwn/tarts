@@ -39,7 +39,7 @@ or you can use it like a library for your own TUI app!
 This repository also provides a nix flake:
 
 ```bash
-nix run github:oiwn/tarts
+nix run github:oiwn/tarts -- matrix
 ```
 
 ## 🛠️ Usage
