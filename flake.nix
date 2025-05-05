@@ -29,6 +29,7 @@
 
               src = pkgs.lib.cleanSource ./.;
               cargoLock.lockFile = ./Cargo.lock;
+              meta.mainProgram = "tarts";
             };
         };
         devShells.default = pkgs.mkShell {
