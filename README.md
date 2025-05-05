@@ -34,6 +34,14 @@ cargo install tarts
 
 or you can use it like a library for your own TUI app!
 
+### Nix
+
+This repository also provides a nix flake:
+
+```bash
+nix run github:oiwn/tarts
+```
+
 ## 🛠️ Usage
 
 To use the screen savers, run the executable with the desired screen saver's name as an argument:
