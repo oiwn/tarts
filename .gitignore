@@ -10,3 +10,4 @@ tags
 code.txt
 .DS_Store
 .amc.toml
+.direnv
