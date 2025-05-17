@@ -88,7 +88,10 @@ impl TerminalEffect for Pipes {
 
         // If empty space is less than (1 - cleanup_factor), reset
         if empty_percentage < (1.0 - self.options.cleanup_factor) {
-            let diff = self.buffer.diff(&Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize));
+            let diff = self.buffer.diff(&Buffer::new(
+                self.screen_size.0 as usize,
+                self.screen_size.1 as usize,
+            ));
             self.reset();
             return diff;
         }
@@ -109,7 +112,8 @@ impl TerminalEffect for Pipes {
     }
 
     fn reset(&mut self) {
-        self.buffer = Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+        self.buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
         self.pipes_made = false;
     }
 }
