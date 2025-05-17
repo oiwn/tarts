@@ -5,21 +5,17 @@ use derive_builder::Builder;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 
-// Characters to represent different plasma densities (from least to most dense)
-static PLASMA_CHARS: [char; 10] =
-    [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
-
 #[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
 #[builder(public, setter(into))]
 pub struct PlasmaOptions {
-    #[builder(default = "0.1")]
+    #[builder(default = "1.0")]
     pub time_scale: f64,
     #[builder(default = "1.0")]
     pub spatial_scale: f64,
-    #[builder(default = "2.0")]
-    pub color_cycle_speed: f64,
     #[builder(default = "true")]
     pub use_color: bool,
+    #[builder(default = "100.0")]
+    pub color_speed: f64,
 }
 
 pub struct Plasma {
@@ -27,7 +23,7 @@ pub struct Plasma {
     options: PlasmaOptions,
     buffer: Buffer,
     time: f64,
-    plasma_lut: Vec<f64>,
+    palette: Vec<style::Color>,
 }
 
 impl TerminalEffect for Plasma {
@@ -35,7 +31,7 @@ impl TerminalEffect for Plasma {
         // Clone the previous buffer to work with
         let mut curr_buffer = self.buffer.clone();
 
-        // Update the plasma field
+        // Update the plasma field directly (no LUT)
         self.update_plasma(&mut curr_buffer);
 
         let diff = self.buffer.diff(&curr_buffer);
@@ -46,7 +42,7 @@ impl TerminalEffect for Plasma {
 
     fn update(&mut self) {
         // Advance the time for the animation
-        self.time += self.options.time_scale;
+        self.time += self.options.time_scale * 0.1;
     }
 
     fn update_size(&mut self, width: u16, height: u16) {
@@ -58,7 +54,6 @@ impl TerminalEffect for Plasma {
         self.buffer =
             Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
         self.time = 0.0;
-        self.plasma_lut = self.create_plasma_lut();
     }
 }
 
@@ -67,125 +62,123 @@ impl Plasma {
         let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
         let time = 0.0;
 
-        let mut plasma = Self {
+        // Generate color palette
+        let palette = Self::generate_palette();
+
+        Self {
             screen_size,
             options,
             buffer,
             time,
-            plasma_lut: Vec::new(),
-        };
-
-        // Initialize the plasma lookup table
-        plasma.plasma_lut = plasma.create_plasma_lut();
-
-        plasma
+            palette,
+        }
     }
 
-    /// Calculate plasma value for a specific point
-    fn plasma_pixel(&self, x: f64, y: f64, time: f64) -> f64 {
+    /// Generate a color palette of 256 colors
+    fn generate_palette() -> Vec<style::Color> {
+        let mut palette = Vec::with_capacity(256);
+
+        for i in 0..256 {
+            let i_f64 = i as f64;
+            let r = 128.0 + 128.0 * (PI * i_f64 / 32.0).sin();
+            let g = 128.0 + 128.0 * (PI * i_f64 / 64.0).sin();
+            let b = 128.0 + 128.0 * (PI * i_f64 / 128.0).sin();
+
+            palette.push(style::Color::Rgb {
+                r: Self::clamp(r as u8, 0, 255),
+                g: Self::clamp(g as u8, 0, 255),
+                b: Self::clamp(b as u8, 0, 255),
+            });
+        }
+
+        // print the palette for debugging
+        // for (i, color) in palette.iter().enumerate() {
+        //     eprintln!("Color {}: {:?}", i, color);
+        // }
+
+        palette
+    }
+
+    /// Clamp a value between min and max
+    fn clamp(val: u8, min: u8, max: u8) -> u8 {
+        if val < min {
+            min
+        } else if val > max {
+            max
+        } else {
+            val
+        }
+    }
+
+    /// Calculate plasma value using the AWK script formula
+    fn calc_plasma_value(&self, x: f64, y: f64, now: f64, w: f64, h: f64) -> u8 {
         let scale = self.options.spatial_scale;
 
-        // Classic plasma formula with time component
-        ((x * scale / 16.0).sin()
-            + (y * scale / 8.0).sin()
-            + ((x + y) * scale / 16.0).sin()
-            + ((x * x + y * y).sqrt() * scale / 8.0).sin()
-            + time.sin()
-            + 4.0)
-            / 8.0
-    }
+        let value = (128.0
+            + (128.0 * ((x / 8.0) * scale - (now / 2.0).cos()).sin())
+            + 128.0
+            + (128.0 * ((y / 16.0) * scale - now.sin() * 2.0).sin())
+            + 128.0
+            + (128.0
+                * (((x - w / 2.0).powi(2) + (y - h / 2.0).powi(2)).sqrt() / 4.0
+                    * scale)
+                    .sin())
+            + 128.0
+            + (128.0
+                * (((x.powi(2) + y.powi(2)).sqrt() / 4.0) * scale
+                    - (now / 4.0).sin())
+                .sin()))
+            / 4.0;
 
-    /// Create the plasma lookup table based on current dimensions
-    fn create_plasma_lut(&self) -> Vec<f64> {
-        let width = self.screen_size.0 as usize;
-        let height = self.screen_size.1 as usize;
-
-        let mut plasma = vec![0.0; width * height];
-
-        for y in 0..height {
-            for x in 0..width {
-                plasma[(y * width) + x] = self.plasma_pixel(
-                    x as f64, y as f64, 0.0, // Initial time is 0
-                );
-            }
-        }
-
-        plasma
-    }
-
-    /// Convert from HSV float to RGB u8 tuple
-    fn hsv_to_rgb(&self, hue: f64, saturation: f64, value: f64) -> (u8, u8, u8) {
-        let c = value * saturation;
-        let h = hue * 6.0;
-        let x = c * (1.0 - (h % 2.0 - 1.0).abs());
-        let m = value - c;
-
-        let (red, green, blue) = match (h % 6.0).floor() as u32 {
-            0 => (c, x, 0.0),
-            1 => (x, c, 0.0),
-            2 => (0.0, c, x),
-            3 => (0.0, x, c),
-            4 => (x, 0.0, c),
-            _ => (c, 0.0, x),
-        };
-
-        // Convert back to RGB (where components are integers from 0 to 255)
-        (
-            ((red + m) * 255.0).round() as u8,
-            ((green + m) * 255.0).round() as u8,
-            ((blue + m) * 255.0).round() as u8,
-        )
-    }
-
-    /// Get the character to represent a plasma value
-    fn get_plasma_char(&self, value: f64) -> char {
-        // Scale the plasma value (0.0 to 1.0) to the index range
-        let index = (value * (PLASMA_CHARS.len() - 1) as f64).round() as usize;
-        PLASMA_CHARS[index.min(PLASMA_CHARS.len() - 1)]
-    }
-
-    /// Convert RGB to a crossterm style color
-    fn rgb_to_style_color(&self, rgb: (u8, u8, u8)) -> style::Color {
-        style::Color::Rgb {
-            r: rgb.0,
-            g: rgb.1,
-            b: rgb.2,
-        }
+        value as u8
     }
 
     /// Update the plasma field in the buffer
     fn update_plasma(&mut self, buffer: &mut Buffer) {
         let width = self.screen_size.0 as usize;
         let height = self.screen_size.1 as usize;
+        let w = width as f64;
+        let h = height as f64;
+        let now = self.time;
 
+        // Use block characters to double the vertical resolution
         for y in 0..height {
             for x in 0..width {
-                let index = y * width + x;
+                // For each cell, calculate two plasma values (upper and lower half)
+                let upper_y = (y * 2) as f64;
+                let lower_y = (y * 2 + 1) as f64;
+                let x_f64 = x as f64;
 
-                // Get the base plasma value and add time component
-                let plasma_value =
-                    (self.plasma_lut[index] + (self.time * 0.1).sin()) % 1.0;
+                // Calculate plasma values
+                let upper_plasma =
+                    self.calc_plasma_value(x_f64, upper_y, now, w, h * 2.0);
+                let lower_plasma =
+                    self.calc_plasma_value(x_f64, lower_y, now, w, h * 2.0);
 
-                // Get character based on plasma value
-                let ch = self.get_plasma_char(plasma_value);
+                // Get color indices with time component
+                let upper_color_idx = ((upper_plasma as f64)
+                    + now * self.options.color_speed)
+                    as usize
+                    % 256;
+                let lower_color_idx = ((lower_plasma as f64)
+                    + now * self.options.color_speed)
+                    as usize
+                    % 256;
 
-                // Calculate color based on time and position
-                let color_hue = (plasma_value
-                    + self.time * self.options.color_cycle_speed / (2.0 * PI))
-                    % 1.0;
-
-                let attr = style::Attribute::Bold;
-
-                // Choose color based on options
-                let color = if self.options.use_color {
-                    let rgb = self.hsv_to_rgb(color_hue, 1.0, 1.0);
-                    self.rgb_to_style_color(rgb)
+                // Choose colors
+                let (fg_color, bg_color) = if self.options.use_color {
+                    (self.palette[upper_color_idx], self.palette[lower_color_idx])
                 } else {
-                    style::Color::White
+                    (style::Color::Red, style::Color::Red)
                 };
 
-                // Set the cell in the buffer
-                buffer.set(x, y, Cell::new(ch, color, attr));
+                // eprintln!("Upper color index: {}, Lower color index: {}", upper_color_idx, lower_color_idx);
+
+                // Use the '▀' (upper half block) character with foreground color for upper half
+                // and background color for lower half of the cell
+                let cell = Cell::new('*', bg_color, style::Attribute::Bold);
+
+                buffer.set(x, y, cell);
             }
         }
     }
@@ -196,9 +189,9 @@ impl DefaultOptions for Plasma {
 
     fn default_options(_width: u16, _height: u16) -> Self::Options {
         PlasmaOptionsBuilder::default()
-            .time_scale(0.1)
+            .time_scale(1.0)
             .spatial_scale(1.0)
-            .color_cycle_speed(1.0)
+            .color_speed(100.0)
             .use_color(true)
             .build()
             .unwrap()
