@@ -36,6 +36,8 @@ pub struct PipesOptions {
     pub num_lines: usize,
     #[builder(default = "0.3")]
     pub pipe_type_change: f64,
+    #[builder(default = "0.9")]
+    pub cleanup_factor: f64,
 }
 
 pub struct Pipe {
@@ -68,6 +70,29 @@ impl TerminalEffect for Pipes {
             self.continue_pipes(&mut curr_buffer);
         }
 
+        // Check if cleanup threshold has been reached by counting empty cells
+        let total_cells = self.screen_size.0 as usize * self.screen_size.1 as usize;
+        let mut empty_cells = 0;
+
+        // Count empty cells in current buffer
+        for y in 0..self.screen_size.1 as usize {
+            for x in 0..self.screen_size.0 as usize {
+                if curr_buffer.get(x, y).symbol == ' ' {
+                    empty_cells += 1;
+                }
+            }
+        }
+
+        // Calculate empty space percentage
+        let empty_percentage = empty_cells as f64 / total_cells as f64;
+
+        // If empty space is less than (1 - cleanup_factor), reset
+        if empty_percentage < (1.0 - self.options.cleanup_factor) {
+            let diff = self.buffer.diff(&Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize));
+            self.reset();
+            return diff;
+        }
+
         let diff = self.buffer.diff(&curr_buffer);
         self.buffer = curr_buffer;
 
@@ -84,8 +109,7 @@ impl TerminalEffect for Pipes {
     }
 
     fn reset(&mut self) {
-        self.buffer =
-            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
+        self.buffer = Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
         self.pipes_made = false;
     }
 }
@@ -393,6 +417,7 @@ impl DefaultOptions for Pipes {
             .turn_probability(0.2)
             .line_type(2usize)
             .num_lines(5usize)
+            .cleanup_factor(0.9)
             .build()
             .unwrap()
     }
