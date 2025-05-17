@@ -12,8 +12,6 @@ pub struct PlasmaOptions {
     pub time_scale: f64,
     #[builder(default = "1.0")]
     pub spatial_scale: f64,
-    #[builder(default = "true")]
-    pub use_color: bool,
     #[builder(default = "100.0")]
     pub color_speed: f64,
 }
@@ -91,11 +89,6 @@ impl Plasma {
             });
         }
 
-        // print the palette for debugging
-        // for (i, color) in palette.iter().enumerate() {
-        //     eprintln!("Color {}: {:?}", i, color);
-        // }
-
         palette
     }
 
@@ -110,7 +103,7 @@ impl Plasma {
         }
     }
 
-    /// Calculate plasma value using the AWK script formula
+    /// Calculate plasma value using the [AWK script formula](https://rosettacode.org/wiki/Plasma_effect#AWK)
     fn calc_plasma_value(&self, x: f64, y: f64, now: f64, w: f64, h: f64) -> u8 {
         let scale = self.options.spatial_scale;
 
@@ -141,42 +134,25 @@ impl Plasma {
         let h = height as f64;
         let now = self.time;
 
-        // Use block characters to double the vertical resolution
         for y in 0..height {
             for x in 0..width {
                 // For each cell, calculate two plasma values (upper and lower half)
-                let upper_y = (y * 2) as f64;
-                let lower_y = (y * 2 + 1) as f64;
+                let y_f64 = (y * 2) as f64;
                 let x_f64 = x as f64;
 
                 // Calculate plasma values
-                let upper_plasma =
-                    self.calc_plasma_value(x_f64, upper_y, now, w, h * 2.0);
-                let lower_plasma =
-                    self.calc_plasma_value(x_f64, lower_y, now, w, h * 2.0);
+                let plasma =
+                    self.calc_plasma_value(x_f64, y_f64, now, w, h * 2.0);
 
                 // Get color indices with time component
-                let upper_color_idx = ((upper_plasma as f64)
-                    + now * self.options.color_speed)
-                    as usize
-                    % 256;
-                let lower_color_idx = ((lower_plasma as f64)
+                let color_idx = ((plasma as f64)
                     + now * self.options.color_speed)
                     as usize
                     % 256;
 
-                // Choose colors
-                let (fg_color, bg_color) = if self.options.use_color {
-                    (self.palette[upper_color_idx], self.palette[lower_color_idx])
-                } else {
-                    (style::Color::Red, style::Color::Red)
-                };
+                let cell_color = self.palette[color_idx];
 
-                // eprintln!("Upper color index: {}, Lower color index: {}", upper_color_idx, lower_color_idx);
-
-                // Use the '▀' (upper half block) character with foreground color for upper half
-                // and background color for lower half of the cell
-                let cell = Cell::new('*', bg_color, style::Attribute::Bold);
+                let cell = Cell::new('*', cell_color, style::Attribute::Bold);
 
                 buffer.set(x, y, cell);
             }
@@ -191,8 +167,7 @@ impl DefaultOptions for Plasma {
         PlasmaOptionsBuilder::default()
             .time_scale(1.0)
             .spatial_scale(1.0)
-            .color_speed(100.0)
-            .use_color(true)
+            .color_speed(150.0)
             .build()
             .unwrap()
     }
