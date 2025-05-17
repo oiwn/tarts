@@ -11,4 +11,5 @@ pub mod error;
 pub mod life;
 pub mod maze;
 pub mod pipes;
+pub mod plasma;
 pub mod rain;
