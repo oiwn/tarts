@@ -74,7 +74,9 @@ mod plasma;
 
 use crate::config::Config;
 
-const HELP: &str = "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab, donut, pipes, plasma";
+const HELP: &str = "Terminal screensavers, run with arg:\n\
+     matrix, life, maze, boids,\n\
+     cube, crab, donut, pipes, plasma";
 const VALID_SAVERS: &[&str] = &[
     "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
     "plasma",
@@ -155,7 +157,7 @@ fn main() -> Result<(), error::TartsError> {
         let mut guard = TerminalGuard::new()?;
         let (width, height) = terminal::size()?;
 
-        let fps = match args.screen_saver.as_str() {
+        match args.screen_saver.as_str() {
             "matrix" => {
                 // let options = config.get_matrix_options((width, height));
                 let options =
@@ -221,8 +223,7 @@ fn main() -> Result<(), error::TartsError> {
                 );
                 0.0
             }
-        };
-        fps
+        }
     };
 
     println!("Frames per second: {}", fps);

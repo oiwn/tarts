@@ -1,5 +1,5 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
-use std::time::Duration;
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::{hint::black_box, time::Duration};
 use tarts::{
     common::{self, TerminalEffect},
     rain::{digital_rain, rain_drop},
