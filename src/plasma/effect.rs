@@ -141,12 +141,10 @@ impl Plasma {
                 let x_f64 = x as f64;
 
                 // Calculate plasma values
-                let plasma =
-                    self.calc_plasma_value(x_f64, y_f64, now, w, h * 2.0);
+                let plasma = self.calc_plasma_value(x_f64, y_f64, now, w, h * 2.0);
 
                 // Get color indices with time component
-                let color_idx = ((plasma as f64)
-                    + now * self.options.color_speed)
+                let color_idx = ((plasma as f64) + now * self.options.color_speed)
                     as usize
                     % 256;
 
