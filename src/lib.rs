@@ -14,3 +14,4 @@ pub mod maze;
 pub mod pipes;
 pub mod plasma;
 pub mod rain;
+pub mod terrain;

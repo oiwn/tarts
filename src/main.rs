@@ -71,13 +71,16 @@ mod maze;
 mod pipes;
 mod plasma;
 mod rain;
+mod terrain;
 
 use crate::config::Config;
 
-const HELP: &str = "Terminal screensavers, run with arg: matrix, life, maze, boids, cube, crab, donut, pipes, plasma, fire";
+const HELP: &str = "Terminal screensavers, run with arg:\n\
+     matrix, life, maze, boids,\n\
+     cube, crab, donut, pipes, plasma, fire, terrain";
 const VALID_SAVERS: &[&str] = &[
     "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
-    "plasma", "fire",
+    "plasma", "fire", "terrain",
 ];
 
 #[derive(Debug)]
@@ -155,7 +158,6 @@ fn main() -> Result<(), error::TartsError> {
         let mut guard = TerminalGuard::new()?;
         let (width, height) = terminal::size()?;
 
-        
         match args.screen_saver.as_str() {
             "matrix" => {
                 // let options = config.get_matrix_options((width, height));
@@ -220,6 +222,11 @@ fn main() -> Result<(), error::TartsError> {
                 let options = fire::Fire::default_options(width, height);
                 let mut fire = fire::Fire::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut fire, None)?
+            }
+            "terrain" => {
+                let options = terrain::Terrain::default_options(width, height);
+                let mut terrain = terrain::Terrain::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut terrain, None)?
             }
             _ => {
                 println!(
