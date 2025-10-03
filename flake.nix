@@ -5,13 +5,22 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, nixpkgs, utils, rust-overlay, ... }:
-    utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      utils,
+      rust-overlay,
+      ...
+    }:
+    utils.lib.eachDefaultSystem (
+      system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
         rustToolchain = pkgs.rust-bin.stable."1.89.0".default;
-      in {
+      in
+      {
         formatter = pkgs.nixfmt-tree;
 
         packages = rec {
@@ -19,7 +28,8 @@
           tarts =
             let
               manifest = pkgs.lib.importTOML ./Cargo.toml;
-            in pkgs.rustPlatform.buildRustPackage {
+            in
+            pkgs.rustPlatform.buildRustPackage {
               pname = manifest.package.name;
               version = manifest.package.version;
 
@@ -42,5 +52,6 @@
           ];
           RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
         };
-      });
+      }
+    );
 }

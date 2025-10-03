@@ -71,3 +71,20 @@ cargo bench
 - **Testing**: The project has a suite of unit and integration tests that can be run with `cargo test`.
 - **Benchmarking**: The project uses the `criterion` library for benchmarking. Benchmarks can be run with `cargo bench`.
 - **Contributions**: Contributions are welcome. The project encourages pull requests, bug reports, and feature suggestions.
+
+## Session Notes (2025-10-03)
+
+### Task: Merge PR #50 (Cacafire Effect)
+
+- The original goal was to merge the old pull request #50.
+- This involved fetching the PR, rebasing on `main`, and resolving multiple merge conflicts.
+- A new pull request, #67, was created from the rebased branch to move forward with a clean history.
+- An accidentally added file (`tarts.txt`) was removed from the history of the new PR.
+
+### Current Status: Blocked by CI Failures
+
+- The new pull request (#67) is currently blocked by failing checks in the CI/CD pipeline.
+- **Nix Jobs Failing**: The `Nix fmt`, `Nix Build`, and `Nix Flake Check` jobs are all failing.
+- **Root Cause**: The primary issue is that the `flake.nix` file is not formatted correctly according to the project's `nix fmt` standards. This is preventing the Nix builds from proceeding.
+- **Constraint**: We are unable to fix the formatting automatically because Nix is not installed locally.
+- **Next Step**: The next session should focus on resolving the `flake.nix` formatting issue to unblock the CI pipeline.
