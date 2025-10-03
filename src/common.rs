@@ -29,9 +29,9 @@ pub trait TerminalEffect {
 }
 
 pub fn process_input() -> Result<bool> {
-    if event::poll(Duration::from_millis(10))? {
-        if let event::Event::Key(keyevent) = event::read()? {
-            if keyevent
+    if event::poll(Duration::from_millis(10))?
+        && let event::Event::Key(keyevent) = event::read()?
+            && (keyevent
                 == event::KeyEvent::new(
                     event::KeyCode::Char('q'),
                     event::KeyModifiers::NONE,
@@ -45,12 +45,10 @@ pub fn process_input() -> Result<bool> {
                     == event::KeyEvent::new(
                         event::KeyCode::Char('c'),
                         event::KeyModifiers::CONTROL,
-                    )
+                    ))
             {
                 return Ok(false);
             }
-        }
-    }
     Ok(true)
 }
 

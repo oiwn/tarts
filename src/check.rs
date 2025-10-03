@@ -69,11 +69,10 @@ pub fn test_effect<T: TerminalEffect>(effect: &mut T, frames: usize) -> Result<(
 
     // Wait for any key press
     loop {
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(_) = event::read()? {
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(_) = event::read()? {
                 break;
             }
-        }
     }
 
     execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen)?;
