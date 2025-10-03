@@ -31,24 +31,24 @@ pub trait TerminalEffect {
 pub fn process_input() -> Result<bool> {
     if event::poll(Duration::from_millis(10))?
         && let event::Event::Key(keyevent) = event::read()?
-            && (keyevent
+        && (keyevent
+            == event::KeyEvent::new(
+                event::KeyCode::Char('q'),
+                event::KeyModifiers::NONE,
+            )
+            || keyevent
                 == event::KeyEvent::new(
-                    event::KeyCode::Char('q'),
+                    event::KeyCode::Esc,
                     event::KeyModifiers::NONE,
                 )
-                || keyevent
-                    == event::KeyEvent::new(
-                        event::KeyCode::Esc,
-                        event::KeyModifiers::NONE,
-                    )
-                || keyevent
-                    == event::KeyEvent::new(
-                        event::KeyCode::Char('c'),
-                        event::KeyModifiers::CONTROL,
-                    ))
-            {
-                return Ok(false);
-            }
+            || keyevent
+                == event::KeyEvent::new(
+                    event::KeyCode::Char('c'),
+                    event::KeyModifiers::CONTROL,
+                ))
+    {
+        return Ok(false);
+    }
     Ok(true)
 }
 
