@@ -67,6 +67,7 @@ mod error;
 mod life;
 mod maze;
 mod rain;
+mod terrain;
 
 mod donut;
 mod pipes;
@@ -79,7 +80,7 @@ const HELP: &str = "Terminal screensavers, run with arg:\n\
      cube, crab, donut, pipes, plasma";
 const VALID_SAVERS: &[&str] = &[
     "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
-    "plasma",
+    "plasma", "terrain",
 ];
 
 #[derive(Debug)]
@@ -216,6 +217,11 @@ fn main() -> Result<(), error::TartsError> {
                 let options = plasma::Plasma::default_options(width, height);
                 let mut plasma = plasma::Plasma::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut plasma, None)?
+            }
+            "terrain" => {
+                let options = terrain::Terrain::default_options(width, height);
+                let mut terrain = terrain::Terrain::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut terrain, None)?
             }
             _ => {
                 println!(
