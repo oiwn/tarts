@@ -101,7 +101,7 @@ impl Buffer {
     }
 
     #[allow(dead_code)]
-    pub fn iter(&self) -> std::slice::Iter<Cell> {
+    pub fn iter(&self) -> std::slice::Iter<'_, Cell> {
         self.buffer.iter()
     }
 }

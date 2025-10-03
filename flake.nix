@@ -27,6 +27,8 @@
               pname = manifest.package.name;
               version = manifest.package.version;
 
+              rust-toolchain = pkgs.rust-bin.stable."1.76.0".default;
+
               src = pkgs.lib.cleanSource ./.;
               cargoLock.lockFile = ./Cargo.lock;
               meta.mainProgram = "tarts";
