@@ -22,20 +22,18 @@ static PERMUTATION: LazyLock<[u8; 512]> = LazyLock::new(|| {
         24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180,
     ];
 
-    for i in 0..256 {
-        p[i] = base[i];
-        p[256 + i] = base[i];
-    }
+    p[..256].copy_from_slice(&base);
+    p[256..(256 + 256)].copy_from_slice(&base);
     p
 });
 
 pub struct PerlinNoise {
-    seed: u32,
+    _seed: u32,
 }
 
 impl PerlinNoise {
     pub fn new(seed: u32) -> Self {
-        Self { seed }
+        Self { _seed: seed }
     }
 
     pub fn noise_2d(&self, x: f64, y: f64) -> f64 {
