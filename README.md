@@ -23,6 +23,7 @@ providing stunning visual effects.
 - 🦀 **Crab**: Animated crabs walking across your screen, interacting with each other and the environment.
 - 🍩 **Rotating Donut**: A mesmerizing rotating donut rendered in the terminal
 - 🚰 **Pipes**: Watch pipes flow with a smooth animation
+- 🔥 **Fire**: A cozy fireplace effect to warm up your terminal
 
 ## 🚀 Installation
 
@@ -55,6 +56,7 @@ tarts cube    # 3d rotating cube using braille patterns
 tarts crab    # Ferris the crab with collisions
 tarts donut  # Rotating donut
 tarts pipes  # Pipes effect
+tarts fire   # Fire effect
 ```
 
 Press `q` or `Esc` to exit (or even Ctrl+C).
