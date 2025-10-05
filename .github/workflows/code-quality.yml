@@ -17,8 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Get Rust toolchain version
+        id: get_toolchain_version
+        run: echo "RUST_TOOLCHAIN=$(grep 'channel =' rust-toolchain.toml | cut -d '"' -f 2)" >> $GITHUB_ENV
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt
       - name: Check formatting
         run: cargo fmt --all -- --check

@@ -88,3 +88,13 @@ cargo bench
 - **Root Cause**: The primary issue is that the `flake.nix` file is not formatted correctly according to the project's `nix fmt` standards. This is preventing the Nix builds from proceeding.
 - **Constraint**: We are unable to fix the formatting automatically because Nix is not installed locally.
 - **Next Step**: The next session should focus on resolving the `flake.nix` formatting issue to unblock the CI pipeline.
+
+# Current task
+
+- **Homebrew Tap Integration**: Setting up GitHub Actions to build and package `tarts` executables for macOS and Linux on release, and preparing the Homebrew formula.
+- **CI Fix**: Addressed the `rustfmt` not found error in CI by dynamically reading the Rust toolchain version from `rust-toolchain.toml` in `code-quality.yml`.
+
+# Plans
+
+- [x] pin minimum rust version
+- [ ] tap for homebrew
