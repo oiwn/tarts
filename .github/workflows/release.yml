@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-upload:
+    name: Build for ${{ matrix.os }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            arch: x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            arch: arm64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        target: ${{ matrix.target }}
+
+    - name: Build tarts
+      run: cargo build --release --target ${{ matrix.target }}
+
+    - name: Create archive
+      shell: bash
+      run: |
+        # Standard naming convention for Homebrew: tarts-{version}-{target}.tar.gz
+        ASSET_NAME="tarts-${{ github.event.release.tag_name }}-${{ matrix.target }}.tar.gz"
+        mkdir -p dist
+        cp target/${{ matrix.target }}/release/tarts dist/tarts
+        tar -czvf "$ASSET_NAME" -C dist tarts
+        echo "ASSET_NAME=$ASSET_NAME" >> $GITHUB_ENV
+
+    - name: Upload release asset
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ${{ env.ASSET_NAME }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
