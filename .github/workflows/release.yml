@@ -27,6 +27,9 @@ jobs:
       with:
         target: ${{ matrix.target }}
 
+    - name: Add target toolchain
+      run: rustup target add ${{ matrix.target }}
+
     - name: Build tarts
       run: cargo build --release --target ${{ matrix.target }}
 
