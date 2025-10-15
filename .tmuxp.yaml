@@ -7,17 +7,21 @@ windows:
     panes:
       - shell_command:
         - helix
-  - window_name: cmd
+  - window_name: agent
     start-directory: ./
     panes:
       - shell_command:
         - clear
-  - window_name: srv
+  - window_name: cmd1
     start-directory: ./
     panes:
       - shell_command:
-        - clear
-  - window_name: notes
+        - eza --long
+  - window_name: cmd2
     panes:
       - shell_command:
-        - emacs -nw notes.org
+        - eza --long
+  - window_name: files
+    panes:
+      - shell_command:
+        - yazi

@@ -1,22 +1,26 @@
-name: Release
+name: Release Assets
 
 on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 jobs:
   build-and-upload:
-    name: Build for ${{ matrix.os }} ${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
+    name: Build for ${{ matrix.runner }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            arch: x86_64
-          - os: macos-latest
+          - runner: macos-latest
             target: aarch64-apple-darwin
             arch: arm64
+          - runner: macos-12
+            target: x86_64-apple-darwin
+            arch: x86_64
+      fail-fast: false
 
     steps:
     - name: Checkout code
@@ -33,7 +37,7 @@ jobs:
     - name: Build tarts
       run: cargo build --release --target ${{ matrix.target }}
 
-    - name: Create archive
+    - name: Create archive and checksum
       shell: bash
       run: |
         # Standard naming convention for Homebrew: tarts-{version}-{target}.tar.gz
@@ -42,10 +46,14 @@ jobs:
         cp target/${{ matrix.target }}/release/tarts dist/tarts
         tar -czvf "$ASSET_NAME" -C dist tarts
         echo "ASSET_NAME=$ASSET_NAME" >> $GITHUB_ENV
+        # Generate sha256 checksum file alongside the archive
+        shasum -a 256 "$ASSET_NAME" | awk '{print $1}' > "$ASSET_NAME.sha256"
 
     - name: Upload release asset
       uses: softprops/action-gh-release@v1
       with:
-        files: ${{ env.ASSET_NAME }}
+        files: |
+          ${{ env.ASSET_NAME }}
+          ${{ env.ASSET_NAME }}.sha256
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
