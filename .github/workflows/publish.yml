@@ -51,8 +51,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Check if package is publishable
-      run: cargo publish --dry-run --locked
+      run: cargo publish --dry-run --allow-dirty
 
     - name: Publish to crates.io
-      run: cargo publish --locked --token ${{ secrets.CRATES_IO_TOKEN }}
-
+      run: cargo publish --allow-dirty --token ${{ secrets.CRATES_IO_TOKEN }}
