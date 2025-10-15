@@ -1,0 +1,62 @@
+name: Release on Version Bump
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.toml'
+
+permissions:
+  contents: write
+
+jobs:
+  detect-version-change:
+    name: Detect version change
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
+      version: ${{ steps.detect.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect version bump
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION=$(grep '^version\s*=\s*"' Cargo.toml | head -n1 | cut -d '"' -f 2)
+          echo "Current: $CURRENT_VERSION"
+
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            PREV_VERSION=$(git show HEAD~1:Cargo.toml | grep '^version\s*=\s*"' | head -n1 | cut -d '"' -f 2 || true)
+          else
+            PREV_VERSION=""
+          fi
+          echo "Previous: ${PREV_VERSION:-<none>}"
+
+          if [ "$CURRENT_VERSION" != "$PREV_VERSION" ] && [ -n "$CURRENT_VERSION" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  create-release:
+    name: Create GitHub release
+    needs: detect-version-change
+    if: needs.detect-version-change.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create/Update release v${{ needs.detect-version-change.outputs.version }}
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ needs.detect-version-change.outputs.version }}
+          name: v${{ needs.detect-version-change.outputs.version }}
+          generateReleaseNotes: true
+          draft: false
+          prerelease: false
+
