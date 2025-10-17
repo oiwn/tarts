@@ -1,14 +1,14 @@
 [package]
 name = "tarts"  # shortcut from Terminal Arts
-version = "0.1.22"
+version = "0.1.23"
 edition = "2024"
 
 authors = ["oiwn <alex@imscraping.ninja>"]
 description = "Screen savers and visual effects for terminal"
 license = "MIT"
-repository = "https://github.com/oiwn/tui-screen-savers-rs"
+repository = "https://github.com/oiwn/tarts"
 documentation = "https://docs.rs/tarts"
-homepage = "https://github.com/oiwn/tui-screen-savers-rs"
+homepage = "https://github.com/oiwn/tarts"
 
 [dependencies]
 crossterm = "0.29"
