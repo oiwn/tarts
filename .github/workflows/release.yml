@@ -44,6 +44,12 @@ jobs:
         toolchain: ${{ env.RUST_TOOLCHAIN }}
         targets: ${{ matrix.target }}
 
+    - name: Ensure target std is installed
+      shell: bash
+      run: |
+        rustup target add ${{ matrix.target }} --toolchain ${{ env.RUST_TOOLCHAIN }}
+        rustup target list --installed
+
     - name: Show toolchain info
       run: |
         rustc -vV
