@@ -27,6 +27,12 @@ providing stunning visual effects.
 
 ## 🚀 Installation
 
+Install via Homebrew (macOS):
+
+```bash
+brew tap oiwn/tap && brew install tarts
+```
+
 Install directly using cargo:
 
 ```bash

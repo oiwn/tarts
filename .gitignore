@@ -2,13 +2,12 @@
 
 # profiling/coverage garbage
 *.profraw
+*.rb
 
 # misc
 tmp/
 tags
-.code
-tarts.txt
-code.txt
 .DS_Store
 .amc.toml
 .direnv
+
