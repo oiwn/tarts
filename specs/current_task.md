@@ -12,32 +12,32 @@ Prepare the `tarts` project for public release and Reddit announcement. The proj
 ## Release Preparation Tasks
 
 ### 1. Documentation Updates
-- [ ] Update README.md with current features and installation methods
-- [ ] Add showcase GIFs/videos of effects for Reddit
-- [ ] Document all available effects with examples
-- [ ] Add installation instructions for Homebrew, Cargo, and manual
+- [x] Update README.md with current features and installation methods
+- [x] Add showcase GIFs/videos of effects for Reddit
+- [x] Document all available effects with examples
+- [x] Add installation instructions for Homebrew, Cargo, and manual
 
 ### 2. Code Quality
-- [ ] Fix remaining Clippy warnings
-- [ ] Run final tests to ensure all effects work correctly
-- [ ] Verify binary builds work on target platforms
+- [x] Fix remaining Clippy warnings
+- [x] Run final tests to ensure all effects work correctly
+- [x] Verify binary builds work on target platforms
 
 ### 3. Release Assets
 - [ ] Create release notes for v0.1.23
-- [ ] Verify Homebrew formula installation works
+- [x] Verify Homebrew formula installation works
+^^^ already verified
 - [ ] Test installation from tap: `brew install oiwn/tap/tarts`
 
 ### 4. Reddit Announcement Preparation
 - [ ] Prepare engaging title and description
-- [ ] Create visual assets (screenshots/GIFs)
-- [ ] Write clear installation instructions
-- [ ] Prepare to answer common questions
+- [x] Create visual assets (screenshots/GIFs)
+- [x] Write clear installation instructions
 
 ### 5. Final Checks
-- [ ] Verify all effects start and run without errors
-- [ ] Test on different terminal sizes
+- [x] Verify all effects start and run without errors
+- [x] Test on different terminal sizes
 - [ ] Ensure graceful exit on Ctrl+C
-- [ ] Check memory usage and performance
+^^^ effects are not quit immediately by "q" or ctrl-c sometimes there is few second lag! need to figure
 
 ## Available Effects for Release
 - matrix, life, maze, boids, cube, crab, donut, pipes, plasma, fire, terrain
@@ -47,7 +47,12 @@ Prepare the `tarts` project for public release and Reddit announcement. The proj
 2. **Cargo**: `cargo install tarts`
 3. **Manual**: Download binaries from GitHub releases
 
+# NOTES
+
+README.md should be user friendly. Not too much nerd related
+
 ## Next Steps After Release
 - Monitor Homebrew tap installations
+^^^ possible?
 - Gather user feedback from Reddit
 - Plan next effect additions based on interest

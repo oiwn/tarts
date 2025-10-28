@@ -1,6 +1,7 @@
 ![Crates.io Total Downloads](https://img.shields.io/crates/d/tarts)
-![GitHub License](https://img.shields.io/github/license/oiwn/tui-screen-savers-rs)
-[![codecov](https://codecov.io/gh/oiwn/tui-screen-savers-rs/graph/badge.svg?token=C7G4AX1ASV)](https://codecov.io/gh/oiwn/tui-screen-savers-rs)
+![Crates.io Downloads (recent)](https://img.shields.io/crates/dr/tarts)
+![GitHub License](https://img.shields.io/github/license/oiwn/tarts)
+[![codecov](https://codecov.io/gh/oiwn/tarts/graph/badge.svg?token=C7G4AX1ASV)](https://codecov.io/gh/oiwn/tarts)
 
 # 🦀 TARTS: Terminal Arts 🎨
 
@@ -11,7 +12,7 @@ terminal-based screen savers that bring visual delight to your command line.
 Built with **ZERO-COST ABSTRACTIONS**, these screen savers run efficiently while
 providing stunning visual effects.
 
-![digital rain](https://i.imgur.com/OPKC7Rb.png)
+![matrix demo](assets/matrix.gif)
 
 ## ✨ Features
 
@@ -19,57 +20,84 @@ providing stunning visual effects.
 - 🧫 **Conway's Game of Life**: Watch the classic cellular automaton evolve before your eyes
 - 🧩 **Maze Generation**: Get lost in procedurally generated mazes
 - 🐦 **Boids**: Witness the emergent flocking behavior of these simulated birds
-- 🧊 **3D Cube**: Renders a rotating 3D cube using terminal graphics with braille patterns for higher resolution.
-- 🦀 **Crab**: Animated crabs walking across your screen, interacting with each other and the environment.
+- 🧊 **3D Cube**: Renders a rotating 3D cube using terminal graphics with braille patterns for higher resolution
+- 🦀 **Crab**: Animated crabs walking across your screen, interacting with each other and the environment
 - 🍩 **Rotating Donut**: A mesmerizing rotating donut rendered in the terminal
 - 🚰 **Pipes**: Watch pipes flow with a smooth animation
 - 🔥 **Fire**: A cozy fireplace effect to warm up your terminal
+- 🌄 **Terrain**: Beautiful procedural terrain generation with colorful landscapes
+- ⚡ **Plasma**: Electric plasma effect with vibrant colors and smooth animations
+- 🎯 **Blank**: Simple blank screen with minimal resource usage
 
 ## 🚀 Installation
 
-Install via Homebrew (macOS):
-
+### Homebrew (macOS & Linux)
 ```bash
 brew tap oiwn/tap && brew install tarts
 ```
 
-Install directly using cargo:
-
+### Cargo (Cross-platform)
 ```bash
 cargo install tarts
 ```
 
-or you can use it like a library for your own TUI app!
-
 ### Nix
 
-This repository also provides a nix flake:
-
+Direct from GitHub (always latest version):
 ```bash
 nix run github:oiwn/tarts -- matrix
 ```
 
-## 🛠️ Usage
-
-To use the screen savers, run the executable with the desired screen saver's name as an argument:
-
+Or from the nixpkgs (may be older version):
 ```bash
-tarts matrix  # The classic digital rain effect
-tarts life    # Conway's Game of Life
-tarts maze    # Watch a maze generate itself
-tarts boids   # Bird-like flocking simulation
-tarts cube    # 3d rotating cube using braille patterns
-tarts crab    # Ferris the crab with collisions
-tarts donut  # Rotating donut
-tarts pipes  # Pipes effect
-tarts fire   # Fire effect
+nix-shell -p tarts --run "tarts matrix"
 ```
 
-Press `q` or `Esc` to exit (or even Ctrl+C).
+### Manual Download
+Download the latest binary from [GitHub Releases](https://github.com/oiwn/tarts/releases)
 
-## ⚙️ Configuration
+## 🛠️ Usage
 
-Not implemented yet. I think it should be toml file where you can set options for effects.
+Run any effect by name:
+
+```bash
+tarts matrix   # The classic digital rain effect
+tarts life     # Conway's Game of Life
+tarts maze     # Watch a maze generate itself
+tarts boids    # Bird-like flocking simulation
+tarts cube     # 3D rotating cube using braille patterns
+tarts crab     # Animated crabs with collisions
+tarts donut    # Rotating donut
+tarts pipes    # Pipes effect
+tarts fire     # Fire effect
+tarts terrain  # Procedural terrain generation
+tarts plasma   # Electric plasma effect
+tarts blank    # Simple blank screen
+```
+
+**Controls:** Press `q`, `Esc`, or `Ctrl+C` to exit
+
+**Quick Test:** Try the most popular effect first!
+```bash
+tarts matrix
+```
+
+## 🎨 Effects Gallery
+
+| Effect | Description | Perfect for |
+|--------|-------------|-------------|
+| **matrix** | Classic digital rain falling down your screen | Retro computing vibes |
+| **life** | Conway's cellular automaton evolution | Watching patterns emerge |
+| **maze** | Procedurally generated maze in real-time | Maze enthusiasts |
+| **boids** | Flocking simulation with emergent behavior | Nature lovers |
+| **cube** | 3D rotating cube with braille patterns | Geometry fans |
+| **crab** | Animated crabs walking and interacting | Cute animations |
+| **donut** | Mathematical 3D donut rotation | Math enthusiasts |
+| **pipes** | Smooth flowing pipe animations | Mesmerizing effects |
+| **fire** | Cozy fireplace simulation | Ambience and relaxation |
+| **terrain** | Colorful procedural terrain generation | Landscape visuals |
+| **plasma** | Electric plasma with vibrant colors | Psychedelic effects |
+| **blank** | Minimal blank screen | Resource conservation |
 
 ## 🧪 Development
 
@@ -99,9 +127,3 @@ This project is licensed under the [MIT License](https://opensource.org/licenses
 <div align="center">
   <sub>Built with ❤️ and <strong>FEARLESS CONCURRENCY</strong></sub>
 </div>
-
-
-### More?
-
-- Args parser to run with configuration (yaml or something)
-- add cellular automation like https://www.reddit.com/r/neovim/comments/z70mg3/cellularautomatonnvim_my_first_plugin/
