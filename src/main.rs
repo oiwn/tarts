@@ -25,29 +25,6 @@
 //! tarts cube
 //! tarts crab
 //! ```
-//!
-//! ## Installation
-//!
-//! Install directly using cargo:
-//!
-//! ```bash
-//! cargo install tarts
-//! ```
-//!
-//! ## Configuration
-//!
-//! The screen savers can be configured via command line arguments
-//! (planning to add configuration file).
-//!
-//! ## Contributing
-//!
-//! Contributions are welcome! Please feel free to submit pull requests,
-//! report bugs, and suggest features.
-//!
-//! ## License
-//!
-//! This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
-//!
 #![cfg(not(test))]
 use crossterm::{self, cursor, execute, terminal};
 // use tarts::{config, rain};
@@ -75,12 +52,9 @@ mod terrain;
 
 use crate::config::Config;
 
-const HELP: &str = "Terminal screensavers, run with arg:\n\
-     matrix, life, maze, boids,\n\
-     cube, crab, donut, pipes, plasma, fire, terrain";
 const VALID_SAVERS: &[&str] = &[
     "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
-    "plasma", "fire", "terrain",
+    "plasma", "fire",
 ];
 
 #[derive(Debug)]
@@ -150,7 +124,7 @@ fn main() -> Result<(), error::TartsError> {
     // Check if valid before entering alternate screen
     if !VALID_SAVERS.contains(&args.screen_saver.as_str()) {
         println!("Unknown screen saver: {}", args.screen_saver);
-        println!("{}", HELP);
+        print_help();
         return Ok(());
     }
 
@@ -241,39 +215,98 @@ fn main() -> Result<(), error::TartsError> {
     Ok(())
 }
 
-fn parse_args() -> Result<AppArgs, pico_args::Error> {
-    let mut pargs = pico_args::Arguments::from_env();
+fn parse_args() -> Result<AppArgs, String> {
+    let mut args = std::env::args().skip(1);
+    let mut screen_saver = "matrix".to_string();
+    let mut check = false;
+    let mut effect = None;
+    let mut frames = None;
 
-    if pargs.contains(["-h", "--help"]) {
-        print!("{}", HELP);
-        process::exit(0);
-    }
-
-    // Add this check
-    if pargs.contains("--generate-config") {
-        if let Err(e) = Config::save_default_config() {
-            eprintln!("Failed to generate config: {}", e);
-            process::exit(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--help" | "-h" => {
+                print_help();
+                std::process::exit(0);
+            }
+            "--version" | "-v" => {
+                print_version();
+                std::process::exit(0);
+            }
+            "--check" => {
+                check = true;
+            }
+            "--generate-config" => {
+                if let Err(e) = Config::save_default_config() {
+                    eprintln!("Failed to generate config: {}", e);
+                    std::process::exit(1);
+                }
+                println!("Default configuration generated successfully");
+                std::process::exit(0);
+            }
+            "--effect" => {
+                effect = args.next();
+            }
+            "--frames" => {
+                if let Some(frame_str) = args.next() {
+                    frames = frame_str.parse().ok();
+                }
+            }
+            arg if !arg.starts_with('-') => {
+                if check {
+                    effect = Some(arg.to_string());
+                } else {
+                    screen_saver = arg.to_string();
+                }
+            }
+            _ => {
+                return Err(format!("Unknown argument: {}", arg));
+            }
         }
-        println!("Default configuration generated successfully");
-        process::exit(0);
     }
 
-    let check = pargs.contains("--check");
-    let effect = pargs.opt_value_from_str("--effect")?;
-    let frames = pargs.opt_value_from_str("--frames")?;
-
-    let args = AppArgs {
-        screen_saver: pargs.free_from_str().map_or("matrix".into(), |arg| arg),
+    Ok(AppArgs {
+        screen_saver,
         check,
         effect,
         frames,
-    };
+    })
+}
 
-    let remaining = pargs.finish();
-    if !remaining.is_empty() {
-        eprintln!("Warning: unused arguments left: {:?}", remaining);
-    }
+fn print_help() {
+    println!("tarts - Terminal screensavers");
+    println!();
+    println!("USAGE:");
+    println!("    tarts [EFFECT] [OPTIONS]");
+    println!();
+    println!("EFFECTS:");
+    println!("    matrix      Matrix digital rain");
+    println!("    life        Conway's Game of Life");
+    println!("    maze        Maze generation");
+    println!("    boids       Boids flocking simulation");
+    println!("    cube        3D cube rotation");
+    println!("    crab        ASCII crab animation");
+    println!("    donut       3D donut rotation");
+    println!("    pipes       Pipe maze animation");
+    println!("    plasma      Plasma effect");
+    println!("    fire        Fire simulation");
+    println!("    blank       Blank screen");
+    println!();
+    println!("OPTIONS:");
+    println!("    -h, --help              Show help");
+    println!("    -v, --version           Show version");
+    println!("        --check             Run test mode");
+    println!("        --effect <EFFECT>    Effect to test (with --check)");
+    println!("        --frames <NUM>       Number of frames to run (with --check)");
+    println!("        --generate-config    Generate default config file");
+    println!();
+    println!("EXAMPLES:");
+    println!("    tarts matrix            Run Matrix effect");
+    println!("    tarts --check            Test with default effect");
+    println!("    tarts --check life       Test Life effect");
+    println!("    tarts --check --frames 100 life");
+    println!("    tarts --version          Show version");
+}
 
-    Ok(args)
+fn print_version() {
+    println!("tarts {}", env!("CARGO_PKG_VERSION"));
 }

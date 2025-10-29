@@ -25,7 +25,6 @@ providing stunning visual effects.
 - 🍩 **Rotating Donut**: A mesmerizing rotating donut rendered in the terminal
 - 🚰 **Pipes**: Watch pipes flow with a smooth animation
 - 🔥 **Fire**: A cozy fireplace effect to warm up your terminal
-- 🌄 **Terrain**: Beautiful procedural terrain generation with colorful landscapes
 - ⚡ **Plasma**: Electric plasma effect with vibrant colors and smooth animations
 - 🎯 **Blank**: Simple blank screen with minimal resource usage
 
@@ -70,7 +69,6 @@ tarts crab     # Animated crabs with collisions
 tarts donut    # Rotating donut
 tarts pipes    # Pipes effect
 tarts fire     # Fire effect
-tarts terrain  # Procedural terrain generation
 tarts plasma   # Electric plasma effect
 tarts blank    # Simple blank screen
 ```
@@ -95,7 +93,6 @@ tarts matrix
 | **donut** | Mathematical 3D donut rotation | Math enthusiasts |
 | **pipes** | Smooth flowing pipe animations | Mesmerizing effects |
 | **fire** | Cozy fireplace simulation | Ambience and relaxation |
-| **terrain** | Colorful procedural terrain generation | Landscape visuals |
 | **plasma** | Electric plasma with vibrant colors | Psychedelic effects |
 | **blank** | Minimal blank screen | Resource conservation |
 
