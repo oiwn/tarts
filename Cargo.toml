@@ -1,6 +1,6 @@
 [package]
 name = "tarts"  # shortcut from Terminal Arts
-version = "0.1.23"
+version = "0.1.24"
 edition = "2024"
 
 authors = ["oiwn <alex@imscraping.ninja>"]
@@ -16,7 +16,7 @@ derive_builder = "0.20"
 directories = "6.0"
 env_logger = "0.11"
 log = "0.4"
-pico-args = "0.5"
+
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"

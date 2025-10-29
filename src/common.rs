@@ -120,10 +120,6 @@ where
             .unwrap_or(std::time::Duration::from_secs(0));
         frames_per_second = (frames_per_second + (1.0 / delta.as_secs_f64())) / 2.0;
 
-        if delta < target_frame_duration {
-            std::thread::sleep(target_frame_duration - delta);
-        }
-
         // #[cfg(test)]
         if let Some(iterations) = iterations {
             iters += 1;
