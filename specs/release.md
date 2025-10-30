@@ -22,7 +22,7 @@ git pull origin main
 ### Step 2: Automated Release (GitHub Actions)
 1. Push to main triggers `.github/workflows/release.yml`
 2. GitHub Action:
-   - Builds binaries for macOS (x86_64, arm64), Linux
+   - Builds binaries for macOS (x86_64, arm64), Linux (not implemented yet)
    - Creates GitHub Release with changelog
    - Uploads release assets
    - Publishes to crates.io
@@ -92,21 +92,55 @@ Could create GitHub Action that:
 brew install oiwn/tap/tarts
 cargo install tarts
 ```
-```
 
-### Homebrew Tap Update Script
-```bash
-#!/bin/bash
-VERSION="0.1.24"  # get this from Cargo.toml
-URL="https://github.com/oiwn/tarts/releases/download/v${VERSION}/tarts-macos-x86_64"
-SHA256=$(curl -L -s "$URL" | shasum -a 256 | cut -d' ' -f1)
-
-# Update tarts.rb with sed or similar
-sed -i.bak "s/version \".*\"/version \"${VERSION}\"/" tarts.rb
-sed -i.bak "s/sha256 \".*\"/sha256 \"${SHA256}\"/" tarts.rb
-```
 ## Current Status
-- Ready to release v0.1.24 with lag fixes
+- Ready to release v0.1.24 with pico-args removal and CLI improvements
 - Homebrew tap currently at v0.1.23
-- Release workflow configured and tested
-- Documentation updated
+- Release v0.1.24 is live: https://github.com/oiwn/tarts/releases/tag/v0.1.24
+- Need to update Homebrew tap to v0.1.24
+
+## v0.1.24 Tap Update - Immediate Action Needed
+
+### Current Formula Details
+- File: https://raw.githubusercontent.com/oiwn/homebrew-tap/refs/heads/main/tarts.rb
+- Current version: v0.1.23
+- Current SHA256: `707c10aa58a41cc8ec3e995db640411b73c0b21343d3ec3200faec0a49d19d38`
+
+### Updated Formula Requirements
+- New version: v0.1.24
+- New URL: `https://github.com/oiwn/tarts/archive/refs/tags/v0.1.24.tar.gz`
+- New SHA256: `__NEED_TO_CALCULATE__`
+
+### Steps to Calculate SHA256
+```bash
+curl -sL https://github.com/oiwn/tarts/archive/refs/tags/v0.1.24.tar.gz | sha256sum
+```
+
+### Why Build from Source?
+- Bypass Apple's Gatekeeper warnings on macOS
+- Ensure compatibility with user's system architecture  
+- Allow optimization for user's specific CPU
+- Reduce maintenance burden (no need to build binaries for multiple platforms)
+
+### Updated Formula Preview
+```ruby
+class Tarts < Formula
+  desc "Terminal Arts - Screen savers and visual effects for terminal"
+  homepage "https://github.com/oiwn/tarts"
+  license "MIT"
+
+  url "https://github.com/oiwn/tarts/archive/refs/tags/v0.1.24.tar.gz"
+  sha256 "__NEW_SHA256_HERE__"  # Replace with actual SHA256
+  version "0.1.24"
+
+  depends_on "rust" => :build
+
+  def install
+    system "cargo", "install", *std_cargo_args
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/tarts --version")
+  end
+end
+```
