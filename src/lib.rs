@@ -4,6 +4,7 @@ pub mod buffer;
 pub mod check;
 pub mod common;
 pub mod config;
+pub mod constellation;
 pub mod crab;
 pub mod cube;
 pub mod donut;
