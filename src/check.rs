@@ -112,9 +112,20 @@ pub fn run_test_for_effect(effect_name: &str, frames: usize) -> Result<()> {
             let mut maze = crate::maze::Maze::new(options, terminal::size()?);
             test_effect(&mut maze, frames)
         }
+        "constellation" => {
+            let options =
+                crate::constellation::ConstellationOptionsBuilder::default()
+                    .build()
+                    .unwrap();
+            let mut constellation = crate::constellation::Constellation::new(
+                options,
+                terminal::size()?,
+            );
+            test_effect(&mut constellation, frames)
+        }
         _ => {
             println!(
-                "Unknown effect: {}. Available effects are: matrix, life, maze",
+                "Unknown effect: {}. Available effects are: matrix, life, maze, constellation",
                 effect_name
             );
             Ok(())

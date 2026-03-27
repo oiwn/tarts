@@ -26,6 +26,7 @@ providing stunning visual effects.
 - 🚰 **Pipes**: Watch pipes flow with a smooth animation
 - 🔥 **Fire**: A cozy fireplace effect to warm up your terminal
 - ⚡ **Plasma**: Electric plasma effect with vibrant colors and smooth animations
+- ✨ **Constellation**: Drifting stars that connect with dotted lines and twinkle
 - 🎯 **Blank**: Simple blank screen with minimal resource usage
 
 ## 🚀 Installation
@@ -70,6 +71,7 @@ tarts donut    # Rotating donut
 tarts pipes    # Pipes effect
 tarts fire     # Fire effect
 tarts plasma   # Electric plasma effect
+tarts constellation  # Drifting stars and dotted constellations
 tarts blank    # Simple blank screen
 ```
 
@@ -94,6 +96,7 @@ tarts matrix
 | **pipes** | Smooth flowing pipe animations | Mesmerizing effects |
 | **fire** | Cozy fireplace simulation | Ambience and relaxation |
 | **plasma** | Electric plasma with vibrant colors | Psychedelic effects |
+| **constellation** | Drifting stars linked by dotted lines | Calm ambient visuals |
 | **blank** | Minimal blank screen | Resource conservation |
 
 ## 🧪 Development
