@@ -8,6 +8,7 @@ mod buffer;
 mod check;
 mod common;
 mod config;
+mod constellation;
 mod crab;
 mod cube;
 mod donut;
@@ -23,8 +24,18 @@ mod terrain;
 use crate::config::Config;
 
 const VALID_SAVERS: &[&str] = &[
-    "matrix", "life", "maze", "boids", "blank", "cube", "crab", "donut", "pipes",
-    "plasma", "fire", "terrain",
+    "matrix",
+    "life",
+    "maze",
+    "boids",
+    "blank",
+    "cube",
+    "crab",
+    "donut",
+    "pipes",
+    "plasma",
+    "fire",
+    "constellation",
 ];
 
 #[derive(Debug)]
@@ -161,6 +172,12 @@ fn main() -> Result<(), error::TartsError> {
                 let mut fire = fire::Fire::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut fire, None)?
             }
+            "constellation" => {
+                let options = config.get_constellation_options();
+                let mut constellation =
+                    constellation::Constellation::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut constellation, None)?
+            }
             "terrain" => {
                 let options = config.get_terrain_options();
                 let mut terrain = terrain::Terrain::new(options, (width, height));
@@ -254,6 +271,7 @@ fn print_help() {
     println!("    plasma      Plasma effect");
     println!("    fire        Fire simulation");
     println!("    terrain     Terrain generation");
+    println!("    constellation  Drifting stars and dotted connections");
     println!("    blank       Blank screen");
     println!();
     println!("OPTIONS:");

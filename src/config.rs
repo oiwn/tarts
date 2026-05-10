@@ -1,6 +1,7 @@
 use crate::{
     blank::{BlankOptions, BlankOptionsBuilder},
     boids::{BoidsOptions, BoidsOptionsBuilder},
+    constellation::{ConstellationOptions, ConstellationOptionsBuilder},
     crab::{CrabOptions, CrabOptionsBuilder},
     cube::{CubeOptions, CubeOptionsBuilder},
     donut::{DonutOptions, DonutOptionsBuilder},
@@ -64,6 +65,8 @@ pub struct Config {
     pub fire: FireOptions,
     #[serde(default)]
     pub terrain: TerrainOptions,
+    #[serde(default)]
+    pub constellation: ConstellationOptions,
 }
 
 impl Config {
@@ -175,6 +178,10 @@ impl Config {
     pub fn get_terrain_options(&self) -> TerrainOptions {
         self.terrain.clone()
     }
+
+    pub fn get_constellation_options(&self) -> ConstellationOptions {
+        self.constellation.clone()
+    }
 }
 
 impl Default for Config {
@@ -192,6 +199,9 @@ impl Default for Config {
             plasma: PlasmaOptionsBuilder::default().build().unwrap(),
             fire: FireOptionsBuilder::default().build().unwrap(),
             terrain: TerrainOptionsBuilder::default().build().unwrap(),
+            constellation: ConstellationOptionsBuilder::default()
+                .build()
+                .unwrap(),
         }
     }
 }

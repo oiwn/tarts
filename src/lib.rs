@@ -10,6 +10,7 @@
 //! | `check`  | Terminal event checking (input, resize)  |
 //! | `common` | Shared traits and types (TerminalEffect) |
 //! | `config` | CLI configuration and argument parsing   |
+//! | `constellation` | Drifting stars and dotted connections |
 //! | `crab`   | ASCII crab walking animation             |
 //! | `cube`   | 3D rotating cube in ASCII                |
 //! | `donut`  | 3D rotating donut in ASCII               |
@@ -28,6 +29,7 @@ pub mod buffer;
 pub mod check;
 pub mod common;
 pub mod config;
+pub mod constellation;
 pub mod crab;
 pub mod cube;
 pub mod donut;
