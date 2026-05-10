@@ -1,7 +1,7 @@
 // use super::rain_options::DigitalRainOptions;
 use crate::rain::digital_rain::DigitalRainOptions;
 use rand::{
-    self, Rng,
+    self, Rng, RngExt,
     distr::{Distribution, StandardUniform},
     seq::IndexedRandom,
 };

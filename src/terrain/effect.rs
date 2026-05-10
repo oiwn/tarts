@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 pub struct TerrainOptions {
     #[builder(default = "42")]
     pub seed: u32,
-    #[builder(default = "0.05")]
+    #[builder(default = "0.02")]
     pub scale: f64,
     #[builder(default = "4")]
     pub octaves: i32,

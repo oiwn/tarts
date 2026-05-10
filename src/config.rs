@@ -1,162 +1,126 @@
 use crate::{
+    blank::{BlankOptions, BlankOptionsBuilder},
     boids::{BoidsOptions, BoidsOptionsBuilder},
     crab::{CrabOptions, CrabOptionsBuilder},
     cube::{CubeOptions, CubeOptionsBuilder},
+    donut::{DonutOptions, DonutOptionsBuilder},
     error::{ConfigError, Result, TartsError},
+    fire::{FireOptions, FireOptionsBuilder},
     life::{ConwayLifeOptions, ConwayLifeOptionsBuilder},
     maze::{MazeOptions, MazeOptionsBuilder},
+    pipes::{PipesOptions, PipesOptionsBuilder},
+    plasma::{PlasmaOptions, PlasmaOptionsBuilder},
     rain::digital_rain::{DigitalRainOptions, DigitalRainOptionsBuilder},
+    terrain::{TerrainOptions, TerrainOptionsBuilder},
 };
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+fn config_path() -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        let appdata = std::env::var("APPDATA").unwrap_or_else(|_| {
+            directories::BaseDirs::new()
+                .unwrap()
+                .home_dir()
+                .join("AppData/Roaming")
+                .display()
+                .to_string()
+        });
+        PathBuf::from(appdata).join("tarts.toml")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        directories::BaseDirs::new()
+            .unwrap()
+            .home_dir()
+            .join(".config/tarts.toml")
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
-    matrix: DigitalRainOptions,
+    pub matrix: DigitalRainOptions,
     #[serde(default)]
-    life: ConwayLifeOptions,
+    pub life: ConwayLifeOptions,
     #[serde(default)]
-    maze: MazeOptions,
+    pub maze: MazeOptions,
     #[serde(default)]
-    boids: BoidsOptions,
+    pub boids: BoidsOptions,
     #[serde(default)]
-    cube: CubeOptions,
+    pub blank: BlankOptions,
     #[serde(default)]
-    crab: CrabOptions,
+    pub cube: CubeOptions,
+    #[serde(default)]
+    pub crab: CrabOptions,
+    #[serde(default)]
+    pub donut: DonutOptions,
+    #[serde(default)]
+    pub pipes: PipesOptions,
+    #[serde(default)]
+    pub plasma: PlasmaOptions,
+    #[serde(default)]
+    pub fire: FireOptions,
+    #[serde(default)]
+    pub terrain: TerrainOptions,
 }
 
 impl Config {
-    // Generate and save default config
-    pub fn save_default_config() -> Result<()> {
-        let proj_dirs = ProjectDirs::from("", "", "tarts").ok_or_else(|| {
-            TartsError::Config(ConfigError::MissingField(
-                "Could not determine config directory".into(),
-            ))
-        })?;
-
-        // Create config directory if it doesn't exist
-        let config_dir = proj_dirs.config_dir();
-        std::fs::create_dir_all(config_dir)?;
-
-        let config_path = config_dir.join("tarts.toml");
-
-        // Create default config
-        let default_config = Config::default();
-
-        // Convert to TOML and save
-        let contents = toml::to_string(&default_config)
+    /// Print default config as TOML to stdout (for piping into a file).
+    pub fn print_default_config() -> Result<()> {
+        let contents = toml::to_string_pretty(&Config::default())
             .map_err(|e| TartsError::Config(ConfigError::SerializeFormat(e)))?;
-        std::fs::write(config_path, contents)?;
-
+        println!("{}", contents);
         Ok(())
     }
 
-    // Modify your existing load method to create default if missing
-    #[allow(dead_code)]
-    pub fn load_old() -> Result<Self> {
-        let proj_dirs = ProjectDirs::from("", "", "tarts").ok_or_else(|| {
-            TartsError::Config(ConfigError::MissingField(
-                "Could not determine config directory".into(),
-            ))
-        })?;
-
-        let config_path = proj_dirs.config_dir().join("tarts.toml");
-
-        if !config_path.exists() {
-            // Create config directory if it doesn't exist
-            std::fs::create_dir_all(proj_dirs.config_dir())?;
-
-            // Create and save default config
-            let default_config = Config::default();
-            let contents = toml::to_string(&default_config)
-                .map_err(|e| TartsError::Config(ConfigError::SerializeFormat(e)))?;
-            std::fs::write(&config_path, contents)?;
-            return Ok(default_config);
-        }
-
-        let contents = std::fs::read_to_string(config_path)?;
-        toml::from_str(&contents)
-            .map_err(|e| TartsError::Config(ConfigError::DeserializeFormat(e)))
-    }
-
-    #[allow(dead_code)]
-    pub fn load() -> Result<Self> {
-        let proj_dirs = ProjectDirs::from("", "", "tarts").ok_or_else(|| {
-            eprintln!("Failed to get project directory");
-            TartsError::Config(ConfigError::MissingField(
-                "Could not determine config directory".into(),
-            ))
-        })?;
-
-        println!("Config dir: {:?}", proj_dirs.config_dir());
-        let config_path = proj_dirs.config_dir().join("tarts.toml");
-        println!("Config path: {:?}", config_path);
-
-        if !config_path.exists() {
-            println!("Config file doesn't exist, creating default");
-
-            // Create config directory if it doesn't exist
-            match std::fs::create_dir_all(proj_dirs.config_dir()) {
-                Ok(_) => println!("Created config directory"),
-                Err(e) => println!("Failed to create config directory: {}", e),
-            }
-
-            // Create default config using builders explicitly
-            let default_config = Config {
-                matrix: DigitalRainOptionsBuilder::default().build().unwrap(),
-                life: ConwayLifeOptionsBuilder::default().build().unwrap(),
-                maze: MazeOptionsBuilder::default().build().unwrap(),
-                boids: BoidsOptionsBuilder::default().build().unwrap(),
-                cube: CubeOptionsBuilder::default().build().unwrap(),
-                crab: CrabOptionsBuilder::default().build().unwrap(),
-            };
-
-            println!("Default cube options: {:?}", default_config.cube);
-
-            // Serialize and write
-            let contents = toml::to_string(&default_config).map_err(|e| {
-                println!("Failed to serialize config: {}", e);
-                TartsError::Config(ConfigError::SerializeFormat(e))
+    /// Load config from platform path. Returns the config and a status message.
+    /// If no config file exists, returns default config in memory (does NOT write to disk).
+    pub fn load() -> Result<(Self, String)> {
+        let path = config_path();
+        if path.exists() {
+            let contents = std::fs::read_to_string(&path)?;
+            let config = toml::from_str(&contents).map_err(|e| {
+                TartsError::Config(ConfigError::DeserializeFormat(e))
             })?;
-
-            println!("TOML contents: {}", contents);
-
-            std::fs::write(&config_path, &contents)?;
-            println!("Wrote config file successfully");
-
-            return Ok(default_config);
+            Ok((config, format!("Loaded config from {}", path.display())))
+        } else {
+            Ok((
+                Config::default(),
+                format!("No config found at {}, using defaults", path.display()),
+            ))
         }
-
-        println!("Config file exists, loading it");
-        let contents = std::fs::read_to_string(&config_path)?;
-        println!("Loaded contents: {}", contents);
-
-        let config = toml::from_str(&contents).map_err(|e| {
-            println!("Failed to parse config: {}", e);
-            TartsError::Config(ConfigError::DeserializeFormat(e))
-        })?;
-
-        println!("Parsed config successfully");
-        Ok(config)
     }
 }
 
-// FIXIT: need to do something with this mess
-#[allow(unused)]
 impl Config {
-    // Add these methods
     pub fn get_matrix_options(
         &self,
-        _screen_size: (u16, u16),
+        screen_size: (u16, u16),
     ) -> DigitalRainOptions {
-        // If default is needed, create it, otherwise use stored config
-        self.matrix.clone()
+        let mut options = self.matrix.clone();
+        let (w, h) = screen_size;
+        let area = w as f32 * h as f32;
+        options.drops_range = {
+            let min = (area / 160.0 * options.drops_coeff) as u16;
+            let max = (area / 80.0 * options.drops_coeff) as u16;
+            (min.max(10), max.max(20))
+        };
+        options.speed_range = {
+            let min = ((h as f32 / 20.0 * options.speed_coeff) as u16).max(2);
+            let max = ((h as f32 / 10.0 * options.speed_coeff) as u16).max(16);
+            (min, max)
+        };
+        options
     }
 
-    pub fn get_life_options(&self, _screen_size: (u16, u16)) -> ConwayLifeOptions {
-        self.life.clone()
+    pub fn get_life_options(&self, screen_size: (u16, u16)) -> ConwayLifeOptions {
+        let mut options = self.life.clone();
+        let (w, h) = screen_size;
+        options.initial_cells =
+            (w as f32 * h as f32 * 0.15 * options.cells_coeff) as u32;
+        options
     }
 
     pub fn get_maze_options(&self, _screen_size: (u16, u16)) -> MazeOptions {
@@ -166,15 +130,50 @@ impl Config {
     pub fn get_boids_options(&self, screen_size: (u16, u16)) -> BoidsOptions {
         let mut options = self.boids.clone();
         options.screen_size = screen_size;
+        let (w, h) = screen_size;
+        options.boid_count = ((w as f32 * h as f32 * 0.5 * options.boid_coeff)
+            as u16)
+            .clamp(50, 300);
         options
+    }
+
+    pub fn get_blank_options(&self) -> BlankOptions {
+        self.blank.clone()
     }
 
     pub fn get_cube_options(&self) -> CubeOptions {
         self.cube.clone()
     }
 
-    pub fn get_crab_options(&self) -> CrabOptions {
-        self.crab.clone()
+    pub fn get_crab_options(&self, screen_size: (u16, u16)) -> CrabOptions {
+        let mut options = self.crab.clone();
+        let screen_area = screen_size.0 as f32 * screen_size.1 as f32;
+        options.crab_count =
+            (screen_area / 800.0 * options.crab_coeff).clamp(3.0, 15.0) as u16;
+        options
+    }
+
+    pub fn get_donut_options(&self, screen_size: (u16, u16)) -> DonutOptions {
+        let mut options = self.donut.clone();
+        let min_dim = screen_size.0.min(screen_size.1) as f32;
+        options.k1 = min_dim * 0.8 * options.k1_coeff;
+        options
+    }
+
+    pub fn get_pipes_options(&self) -> PipesOptions {
+        self.pipes.clone()
+    }
+
+    pub fn get_plasma_options(&self) -> PlasmaOptions {
+        self.plasma.clone()
+    }
+
+    pub fn get_fire_options(&self) -> FireOptions {
+        self.fire.clone()
+    }
+
+    pub fn get_terrain_options(&self) -> TerrainOptions {
+        self.terrain.clone()
     }
 }
 
@@ -185,8 +184,14 @@ impl Default for Config {
             life: ConwayLifeOptionsBuilder::default().build().unwrap(),
             maze: MazeOptionsBuilder::default().build().unwrap(),
             boids: BoidsOptionsBuilder::default().build().unwrap(),
+            blank: BlankOptionsBuilder::default().build().unwrap(),
             cube: CubeOptionsBuilder::default().build().unwrap(),
             crab: CrabOptionsBuilder::default().build().unwrap(),
+            donut: DonutOptionsBuilder::default().build().unwrap(),
+            pipes: PipesOptionsBuilder::default().build().unwrap(),
+            plasma: PlasmaOptionsBuilder::default().build().unwrap(),
+            fire: FireOptionsBuilder::default().build().unwrap(),
+            terrain: TerrainOptionsBuilder::default().build().unwrap(),
         }
     }
 }

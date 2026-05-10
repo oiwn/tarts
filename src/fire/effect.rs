@@ -2,7 +2,7 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
 use crossterm::style;
 use derive_builder::Builder;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -55,7 +55,7 @@ const MAXTABLE: usize = 256 * 5;
 #[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
 #[builder(public, setter(into))]
 pub struct FireOptions {
-    #[builder(default = "false")]
+    #[builder(default = "true")]
     pub use_colors: bool,
 }
 

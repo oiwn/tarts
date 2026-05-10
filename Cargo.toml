@@ -1,6 +1,6 @@
 [package]
 name = "tarts"  # shortcut from Terminal Arts
-version = "0.1.24"
+version = "0.1.25"
 edition = "2024"
 
 authors = ["oiwn <alex@imscraping.ninja>"]
@@ -17,14 +17,14 @@ directories = "6.0"
 env_logger = "0.11"
 log = "0.4"
 
-rand = "0.9"
+rand = "0.10"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-toml = "0.8"
+toml = "1"
 
 [dev-dependencies]
-criterion = "0.6"
-tempfile = "3.20"
+criterion = "0.8"
+tempfile = "3.27"
 
 [[bench]]
 name = "rain_benchmarks"

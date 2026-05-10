@@ -21,6 +21,4 @@ pub enum ConfigError {
 
     #[error("Failed to serialize config: {0}")]
     SerializeFormat(#[from] toml::ser::Error),
-    #[error("Missing required field: {0}")]
-    MissingField(String),
 }

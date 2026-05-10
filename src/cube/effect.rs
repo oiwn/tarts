@@ -29,15 +29,15 @@ struct Edge {
 #[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
 #[builder(public, setter(into))]
 pub struct CubeOptions {
-    #[builder(default = "5.0")]
+    #[builder(default = "1.0")]
     pub cube_size: f32,
-    #[builder(default = "0.5")]
+    #[builder(default = "0.6")]
     pub rotation_speed_x: f32,
-    #[builder(default = "0.7")]
+    #[builder(default = "0.8")]
     pub rotation_speed_y: f32,
-    #[builder(default = "0.3")]
+    #[builder(default = "0.4")]
     pub rotation_speed_z: f32,
-    #[builder(default = "3.0")]
+    #[builder(default = "3.5")]
     pub distance: f32,
     #[builder(default = "true")]
     pub use_braille: bool,

@@ -15,10 +15,13 @@ pub struct DonutOptions {
     pub rotation_speed_a: f32,
     #[builder(default = "0.03")]
     pub rotation_speed_b: f32,
-    #[builder(default = "5.0")]
+    #[builder(default = "5.5")]
     pub distance: f32,
     #[builder(default = "25.0")]
+    #[serde(skip)]
     pub k1: f32,
+    #[builder(default = "1.0")]
+    pub k1_coeff: f32,
     #[builder(
         default = "vec!['.', ',', '-', '~', ':', ';', '=', '!', '*', '#', '$', '@']"
     )]

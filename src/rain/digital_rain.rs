@@ -5,14 +5,22 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
 
 use derive_builder::Builder;
-use rand::{self, Rng};
+use rand::{self, RngExt};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Builder, Default, Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct DigitalRainOptions {
+    #[builder(default = "(10, 20)")]
+    #[serde(skip)]
     pub drops_range: (u16, u16),
+    #[builder(default = "(2, 16)")]
+    #[serde(skip)]
     pub speed_range: (u16, u16),
+    #[builder(default = "1.0")]
+    pub drops_coeff: f32,
+    #[builder(default = "1.0")]
+    pub speed_coeff: f32,
 }
 
 pub struct DigitalRain {

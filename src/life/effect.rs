@@ -14,7 +14,7 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
 use crossterm::style;
 use derive_builder::Builder;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -28,7 +28,11 @@ static DEAD_CELLS_CHARS: LazyLock<Vec<char>> = LazyLock::new(|| {
 #[derive(Builder, Default, Debug, Serialize, Deserialize, Clone)]
 #[builder(public, setter(into))]
 pub struct ConwayLifeOptions {
+    #[builder(default = "200")]
+    #[serde(skip)]
     pub initial_cells: u32,
+    #[builder(default = "1.0")]
+    pub cells_coeff: f32,
 }
 
 #[derive(Clone)]

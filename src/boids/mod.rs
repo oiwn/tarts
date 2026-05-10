@@ -1,3 +1,3 @@
 pub mod effect;
 #[allow(unused)]
-pub use effect::{Boids, BoidsOptions, BoidsOptionsBuilder};
+pub use effect::{BoidCharset, Boids, BoidsOptions, BoidsOptionsBuilder};

@@ -2,7 +2,7 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
 use crossterm::style;
 use derive_builder::Builder;
-use rand::{Rng, seq::SliceRandom};
+use rand::{RngExt, seq::SliceRandom};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet, VecDeque},

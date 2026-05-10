@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.25] - 2026-05-11
+
+### Added
+- Config system: loads from `~/.config/tarts.toml` (macOS/Linux) or `%APPDATA%/tarts.toml` (Windows)
+- `--print-config` flag: prints default config as TOML to stdout (pipe to file)
+- Screen-adaptive coefficients: effects scale naturally to terminal size (`drops_coeff`, `speed_coeff`, `cells_coeff`, `boid_coeff`, `crab_coeff`, `k1_coeff`)
+- `BoidCharset` enum: Braille (default), Arrow, Simple, Dot — configurable boid character sets
+- `src/lib.rs` module-level docstring with effect description table
+
+### Changed
+- Builder defaults aligned with original `DefaultOptions` values: cube size, fire colors, donut projection, pipes density, plasma speed, terrain scale, crab count
+- `Config::load()` returns defaults in memory when config file missing (no auto-write)
+- Config status printed after effect exits (loaded path or "using defaults")
+- Updated dependencies: rand 0.10, toml 1.x, criterion 0.8, tempfile 3.27
+
+### Removed
+- `--generate-config` flag (replaced by `--print-config`)
+
 ## [0.1.24] - 2025-01-27
 
 ### Changed
@@ -21,9 +39,6 @@ All notable changes to this project will be documented in this file.
 - **Faster compilation**
 - **Full control** over CLI behavior
 - **Better user experience** with proper help and error messages
-
-### Effects Available
-- matrix, life, maze, boids, cube, crab, donut, pipes, plasma, fire, blank, terrain
 
 ## [0.1.23] - Previous
 
