@@ -5,11 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [0.1.25] - 2026-05-11
 
 ### Added
+- **Constellation effect** — drifting stars and dotted connections (thanks [@AnarchistHoneybun](https://github.com/AnarchistHoneybun))
 - Config system: loads from `~/.config/tarts.toml` (macOS/Linux) or `%APPDATA%/tarts.toml` (Windows)
 - `--print-config` flag: prints default config as TOML to stdout (pipe to file)
 - Screen-adaptive coefficients: effects scale naturally to terminal size (`drops_coeff`, `speed_coeff`, `cells_coeff`, `boid_coeff`, `crab_coeff`, `k1_coeff`)
 - `BoidCharset` enum: Braille (default), Arrow, Simple, Dot — configurable boid character sets
 - `src/lib.rs` module-level docstring with effect description table
+- `prek` pre-commit checks
 
 ### Changed
 - Builder defaults aligned with original `DefaultOptions` values: cube size, fire colors, donut projection, pipes density, plasma speed, terrain scale, crab count

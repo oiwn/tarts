@@ -82,7 +82,7 @@ pub fn test_effect<T: TerminalEffect>(effect: &mut T, frames: usize) -> Result<(
     Ok(())
 }
 
-/// Run appropirate effect till frame number
+/// Run appropriate effect till frame number
 pub fn run_test_for_effect(effect_name: &str, frames: usize) -> Result<()> {
     match effect_name {
         "matrix" => {

@@ -1,0 +1,2 @@
+[default.extend-identifiers]
+ba = "ba"  # variable name in Perlin noise algorithm (src/terrain/noise.rs)

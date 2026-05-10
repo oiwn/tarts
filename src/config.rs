@@ -199,9 +199,7 @@ impl Default for Config {
             plasma: PlasmaOptionsBuilder::default().build().unwrap(),
             fire: FireOptionsBuilder::default().build().unwrap(),
             terrain: TerrainOptionsBuilder::default().build().unwrap(),
-            constellation: ConstellationOptionsBuilder::default()
-                .build()
-                .unwrap(),
+            constellation: ConstellationOptionsBuilder::default().build().unwrap(),
         }
     }
 }

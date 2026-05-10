@@ -18,7 +18,7 @@ static CHARACTERS_MAP: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
     m
 });
 
-/// Characters to draw more interesing view
+/// Characters to draw more interesting view
 static CHARACTERS: LazyLock<Vec<char>> = LazyLock::new(|| {
     let mut v = Vec::new();
     for (_, chars) in CHARACTERS_MAP.iter() {

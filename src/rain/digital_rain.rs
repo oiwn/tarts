@@ -72,8 +72,8 @@ impl TerminalEffect for DigitalRain {
 }
 
 /// Process digital rain effect.
-/// Noice that all processing done implying coordinates started from 0, 0
-/// and width / height is actual number of columnts and rows
+/// Note that all processing done implying coordinates started from 0, 0
+/// and width / height is actual number of columns and rows
 impl DigitalRain {
     // Initialize screensaver
     pub fn new(options: DigitalRainOptions, screen_size: (u16, u16)) -> Self {

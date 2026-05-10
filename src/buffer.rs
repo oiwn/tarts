@@ -41,7 +41,7 @@ impl Buffer {
     // Indexing from 1: 1 2 3 4 5  | Square: 25
     // Need to check width of height are greater than zero
     pub fn new(width: usize, height: usize) -> Self {
-        // fill buffer with dafault values
+        // fill buffer with default values
         debug_assert!(width > 0 && height > 0);
         Self {
             width,
