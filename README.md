@@ -82,23 +82,6 @@ tarts blank    # Simple blank screen
 tarts matrix
 ```
 
-## 🎨 Effects Gallery
-
-| Effect | Description | Perfect for |
-|--------|-------------|-------------|
-| **matrix** | Classic digital rain falling down your screen | Retro computing vibes |
-| **life** | Conway's cellular automaton evolution | Watching patterns emerge |
-| **maze** | Procedurally generated maze in real-time | Maze enthusiasts |
-| **boids** | Flocking simulation with emergent behavior | Nature lovers |
-| **cube** | 3D rotating cube with braille patterns | Geometry fans |
-| **crab** | Animated crabs walking and interacting | Cute animations |
-| **donut** | Mathematical 3D donut rotation | Math enthusiasts |
-| **pipes** | Smooth flowing pipe animations | Mesmerizing effects |
-| **fire** | Cozy fireplace simulation | Ambience and relaxation |
-| **plasma** | Electric plasma with vibrant colors | Psychedelic effects |
-| **constellation** | Drifting stars linked by dotted lines | Calm ambient visuals |
-| **blank** | Minimal blank screen | Resource conservation |
-
 ## 🧪 Development
 
 This project uses standard Rust tooling:
