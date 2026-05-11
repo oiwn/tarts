@@ -41,7 +41,7 @@ impl Buffer {
     // Indexing from 1: 1 2 3 4 5  | Square: 25
     // Need to check width of height are greater than zero
     pub fn new(width: usize, height: usize) -> Self {
-        // fill buffer with dafault values
+        // fill buffer with default values
         debug_assert!(width > 0 && height > 0);
         Self {
             width,
@@ -111,13 +111,139 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cell_default() {
+        let c = Cell::default();
+        assert_eq!(c.symbol, ' ');
+        assert_eq!(c.color, style::Color::Black);
+        assert_eq!(c.attr, style::Attribute::Reset);
+    }
+
+    #[test]
+    fn cell_new() {
+        let c = Cell::new('x', style::Color::Red, style::Attribute::Bold);
+        assert_eq!(c.symbol, 'x');
+        assert_eq!(c.color, style::Color::Red);
+        assert_eq!(c.attr, style::Attribute::Bold);
+    }
+
+    #[test]
+    fn cell_partial_eq() {
+        let a = Cell::new('a', style::Color::Green, style::Attribute::Bold);
+        let b = Cell::new('a', style::Color::Green, style::Attribute::Bold);
+        let c = Cell::new('b', style::Color::Green, style::Attribute::Bold);
+        let d = Cell::new('a', style::Color::Red, style::Attribute::Bold);
+        let e = Cell::new('a', style::Color::Green, style::Attribute::Reset);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(a, d);
+        assert_ne!(a, e);
+    }
+
+    #[test]
     fn create_new() {
         let buf = Buffer::new(5, 4);
         assert_eq!(buf.width, 5);
         assert_eq!(buf.height, 4);
+        assert_eq!(buf.buffer.len(), 20);
+    }
 
-        let size = buf.buffer.len();
-        assert_eq!(size, 20);
+    #[test]
+    fn new_filled_with_defaults() {
+        let buf = Buffer::new(3, 2);
+        for cell in &buf.buffer {
+            assert_eq!(*cell, Cell::default());
+        }
+    }
+
+    #[test]
+    fn get_size() {
+        let buf = Buffer::new(10, 20);
+        assert_eq!(buf.get_size(), (10, 20));
+    }
+
+    #[test]
+    fn index_of() {
+        let buf = Buffer::new(4, 3);
+        assert_eq!(buf.index_of(0, 0), 0);
+        assert_eq!(buf.index_of(3, 0), 3);
+        assert_eq!(buf.index_of(0, 1), 4);
+        assert_eq!(buf.index_of(3, 1), 7);
+        assert_eq!(buf.index_of(0, 2), 8);
+        assert_eq!(buf.index_of(3, 2), 11);
+    }
+
+    #[test]
+    fn pos_of() {
+        let buf = Buffer::new(4, 3);
+        assert_eq!(buf.pos_of(0), (0, 0));
+        assert_eq!(buf.pos_of(3), (3, 0));
+        assert_eq!(buf.pos_of(4), (0, 1));
+        assert_eq!(buf.pos_of(7), (3, 1));
+        assert_eq!(buf.pos_of(11), (3, 2));
+    }
+
+    #[test]
+    fn pos_of_roundtrip() {
+        let buf = Buffer::new(5, 4);
+        for y in 0..buf.height {
+            for x in 0..buf.width {
+                let idx = buf.index_of(x, y);
+                let (rx, ry) = buf.pos_of(idx);
+                assert_eq!((rx, ry), (x, y));
+            }
+        }
+    }
+
+    #[test]
+    fn set_and_get() {
+        let mut buf = Buffer::new(3, 3);
+        let cell = Cell::new('*', style::Color::Yellow, style::Attribute::Bold);
+        buf.set(1, 2, cell);
+        assert_eq!(buf.get(1, 2), cell);
+        assert_eq!(buf.get(0, 0), Cell::default());
+    }
+
+    #[test]
+    fn fill_with() {
+        let mut buf = Buffer::new(3, 2);
+        let cell = Cell::new('.', style::Color::Blue, style::Attribute::Reset);
+        buf.fill_with(&cell);
+        for c in &buf.buffer {
+            assert_eq!(*c, cell);
+        }
+    }
+
+    #[test]
+    fn diff_identical() {
+        let buf1 = Buffer::new(3, 3);
+        let buf2 = Buffer::new(3, 3);
+        assert!(buf1.diff(&buf2).is_empty());
+    }
+
+    #[test]
+    fn diff_single_cell() {
+        let buf1 = Buffer::new(3, 3);
+        let mut buf2 = Buffer::new(3, 3);
+        let cell = Cell::new('X', style::Color::Red, style::Attribute::Bold);
+        buf2.set(1, 1, cell);
+
+        let diff = buf1.diff(&buf2);
+        assert_eq!(diff.len(), 1);
+        assert_eq!(diff[0], (1, 1, cell));
+    }
+
+    #[test]
+    fn diff_different_sizes_compares_overlap() {
+        let buf1 = Buffer::new(2, 2);
+        let mut buf2 = Buffer::new(3, 3);
+        buf2.set(
+            0,
+            0,
+            Cell::new('X', style::Color::Red, style::Attribute::Bold),
+        );
+        // Only compares cells that exist in both buffers (first 4 cells)
+        let diff = buf1.diff(&buf2);
+        assert_eq!(diff.len(), 1);
     }
 
     #[test]
@@ -146,5 +272,16 @@ mod tests {
 
         let diff = buf.diff(&next_buf);
         assert_eq!(diff.len(), 3);
+    }
+
+    #[test]
+    fn iter() {
+        let buf = Buffer::new(2, 2);
+        let mut count = 0;
+        for c in buf.iter() {
+            assert_eq!(*c, Cell::default());
+            count += 1;
+        }
+        assert_eq!(count, 4);
     }
 }

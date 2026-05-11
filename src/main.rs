@@ -1,35 +1,5 @@
-//! # tarts
-//!
-//! `tarts` or TerminalArts is a collection of terminal-based screen savers written
-//! in Rust. This crate provides a variety of screen savers like "Matrix Rain",
-//! "Conway's Game of Life", and "Maze Generation" (not yet), all running directly
-//! in your terminal.
-//!
-//! ## Features
-//!
-//! - Matrix Rain: Simulates the famous "Matrix" digital rain effect in your terminal.
-//! - Conway's Game of Life: Implements the classic cellular automaton in the terminal.
-//! - Maze Generation: Generates and displays a random maze.
-//! - Boids
-//!
-//! ## Usage
-//!
-//! To use the screen savers, run the executable with the desired screen saver's
-//! name as an argument:
-//!
-//! ```bash
-//! tarts matrix
-//! tarts life
-//! tarts maze
-//! tarts boids
-//! tarts cube
-//! tarts crab
-//! ```
 #![cfg(not(test))]
 use crossterm::{self, cursor, execute, terminal};
-// use tarts::{config, rain};
-// use log::info;
-use crate::common::DefaultOptions;
 use std::{io, process};
 
 mod blank;
@@ -103,7 +73,7 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        // Ignore errors during drop - we'''re doing best effort cleanup
+        // Ignore errors during drop - we're doing best effort cleanup
         let _ = execute!(
             self.stdout,
             cursor::Show,
@@ -116,7 +86,6 @@ impl Drop for TerminalGuard {
 
 fn main() -> Result<(), error::TartsError> {
     env_logger::init();
-    // let config = Config::load()?;
 
     let args = match parse_args() {
         Ok(v) => v,
@@ -139,84 +108,78 @@ fn main() -> Result<(), error::TartsError> {
         return Ok(());
     }
 
+    let (config, config_status) = Config::load()?;
+
     let fps = {
         let mut guard = TerminalGuard::new()?;
         let (width, height) = terminal::size()?;
 
         match args.screen_saver.as_str() {
             "matrix" => {
-                // let options = config.get_matrix_options((width, height));
-                let options =
-                    rain::digital_rain::DigitalRain::default_options(width, height);
+                let options = config.get_matrix_options((width, height));
                 let mut digital_rain =
                     rain::digital_rain::DigitalRain::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut digital_rain, None)?
             }
             "life" => {
-                // let options = config.get_life_options((width, height));
-                let options = life::ConwayLife::default_options(width, height);
+                let options = config.get_life_options((width, height));
                 let mut conway_life =
                     life::ConwayLife::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut conway_life, None)?
             }
             "maze" => {
-                // let options = config.get_maze_options((width, height));
-                let options = maze::Maze::default_options(width, height);
+                let options = config.get_maze_options((width, height));
                 let mut maze = maze::Maze::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut maze, None)?
             }
             "boids" => {
-                // let options = config.get_boids_options((width, height));
-                let options = boids::Boids::default_options(width, height);
+                let options = config.get_boids_options((width, height));
                 let mut boids = boids::Boids::new(options);
                 common::run_loop(guard.get_stdout(), &mut boids, None)?
             }
             "blank" => {
-                let options =
-                    blank::BlankOptionsBuilder::default().build().unwrap();
-                let mut check = blank::Blank::new(options, (width, height));
-                common::run_loop(guard.get_stdout(), &mut check, None)?
+                let options = config.get_blank_options();
+                let mut blank = blank::Blank::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut blank, None)?
             }
             "cube" => {
-                // let options = config.get_cube_options();
-                let options = cube::effect::Cube::default_options(width, height);
+                let options = config.get_cube_options();
                 let mut cube = cube::Cube::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut cube, None)?
             }
             "crab" => {
-                let options = crab::Crab::default_options(width, height);
+                let options = config.get_crab_options((width, height));
                 let mut crab = crab::Crab::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut crab, None)?
             }
             "donut" => {
-                let options = donut::Donut::default_options(width, height);
+                let options = config.get_donut_options((width, height));
                 let mut donut = donut::Donut::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut donut, None)?
             }
             "pipes" => {
-                let options = pipes::Pipes::default_options(width, height);
+                let options = config.get_pipes_options();
                 let mut pipes = pipes::Pipes::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut pipes, None)?
             }
             "plasma" => {
-                let options = plasma::Plasma::default_options(width, height);
+                let options = config.get_plasma_options();
                 let mut plasma = plasma::Plasma::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut plasma, None)?
             }
             "fire" => {
-                let options = fire::Fire::default_options(width, height);
+                let options = config.get_fire_options();
                 let mut fire = fire::Fire::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut fire, None)?
             }
             "constellation" => {
-                let options =
-                    constellation::Constellation::default_options(width, height);
+                let options = config.get_constellation_options();
                 let mut constellation =
                     constellation::Constellation::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut constellation, None)?
             }
             "terrain" => {
-                let options = terrain::Terrain::default_options(width, height);
+                let options = config.get_terrain_options();
                 let mut terrain = terrain::Terrain::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut terrain, None)?
             }
@@ -229,7 +192,8 @@ fn main() -> Result<(), error::TartsError> {
         }
     };
 
-    println!("Frames per second: {}", fps);
+    println!("{}", config_status);
+    println!("Frames per second: {:.1}", fps);
     Ok(())
 }
 
@@ -253,12 +217,11 @@ fn parse_args() -> Result<AppArgs, String> {
             "--check" => {
                 check = true;
             }
-            "--generate-config" => {
-                if let Err(e) = Config::save_default_config() {
-                    eprintln!("Failed to generate config: {}", e);
+            "--print-config" => {
+                if let Err(e) = Config::print_default_config() {
+                    eprintln!("Failed to print config: {}", e);
                     std::process::exit(1);
                 }
-                println!("Default configuration generated successfully");
                 std::process::exit(0);
             }
             "--effect" => {
@@ -307,6 +270,7 @@ fn print_help() {
     println!("    pipes       Pipe maze animation");
     println!("    plasma      Plasma effect");
     println!("    fire        Fire simulation");
+    println!("    terrain     Terrain generation");
     println!("    constellation  Drifting stars and dotted connections");
     println!("    blank       Blank screen");
     println!();
@@ -316,13 +280,20 @@ fn print_help() {
     println!("        --check             Run test mode");
     println!("        --effect <EFFECT>    Effect to test (with --check)");
     println!("        --frames <NUM>       Number of frames to run (with --check)");
-    println!("        --generate-config    Generate default config file");
+    println!("        --print-config       Print default config as TOML to stdout");
+    println!();
+    println!("CONFIG:");
+    println!("    Config file (optional): ~/.config/tarts.toml");
+    println!(
+        "    Generate one with:      tarts --print-config > ~/.config/tarts.toml"
+    );
     println!();
     println!("EXAMPLES:");
     println!("    tarts matrix            Run Matrix effect");
     println!("    tarts --check            Test with default effect");
     println!("    tarts --check life       Test Life effect");
     println!("    tarts --check --frames 100 life");
+    println!("    tarts --print-config > ~/.config/tarts.toml");
     println!("    tarts --version          Show version");
 }
 

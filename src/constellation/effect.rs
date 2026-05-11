@@ -2,7 +2,7 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
 use crossterm::style;
 use derive_builder::Builder;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 const STAR_GLYPHS: [char; 4] = ['○', '◦', '*', '✦'];

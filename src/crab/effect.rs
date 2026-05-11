@@ -2,7 +2,7 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
 use crossterm::style;
 use derive_builder::Builder;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -69,6 +69,7 @@ struct CrabEntity {
 #[builder(public, setter(into))]
 pub struct CrabOptions {
     #[builder(default = "5")]
+    #[serde(skip)]
     pub crab_count: u16,
 
     #[builder(default = "0.2")]
@@ -77,8 +78,11 @@ pub struct CrabOptions {
     #[builder(default = "0.05")]
     pub clap_chance: f32, // Random chance for special animation
 
-    #[builder(default = "1.0")]
+    #[builder(default = "5.0")]
     pub movement_speed: f32,
+
+    #[builder(default = "1.0")]
+    pub crab_coeff: f32,
 }
 
 pub struct Crab {

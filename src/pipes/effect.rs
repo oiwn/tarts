@@ -2,7 +2,7 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
 use crossterm::style;
 use derive_builder::Builder;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
@@ -28,11 +28,11 @@ static LINE_CHARS: LazyLock<Vec<Vec<char>>> = LazyLock::new(|| {
 #[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
 #[builder(public, setter(into))]
 pub struct PipesOptions {
-    #[builder(default = "0.1")]
+    #[builder(default = "0.2")]
     pub turn_probability: f64,
-    #[builder(default = "1")]
+    #[builder(default = "2")]
     pub line_type: usize,
-    #[builder(default = "1")]
+    #[builder(default = "5")]
     pub num_lines: usize,
     #[builder(default = "0.3")]
     pub pipe_type_change: f64,

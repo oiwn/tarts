@@ -1,7 +1,7 @@
 // use super::rain_options::DigitalRainOptions;
 use crate::rain::digital_rain::DigitalRainOptions;
 use rand::{
-    self, Rng,
+    self, Rng, RngExt,
     distr::{Distribution, StandardUniform},
     seq::IndexedRandom,
 };
@@ -190,11 +190,11 @@ impl RainDrop {
     /// Update rain drops to change position/grow etc
     /// there can be 4 cases:
     /// rain drop vector not yet fully come from top
-    /// rain drop vector somewhere in the middle of the scren
+    /// rain drop vector somewhere in the middle of the screen
     /// rain drop vector reach bottom and need to fade out
     /// raid drop vector tail out of screen rect visibility
     ///
-    /// Note that rain drop coordiantes can be outside bounds defined
+    /// Note that rain drop coordinates can be outside bounds defined
     /// by screen width and height, this should be handled during draw process
     pub fn update(
         &mut self,
@@ -396,7 +396,7 @@ mod tests {
             &mut rng,
         );
         assert_eq!(new_drop.body.len(), 1);
-        assert_eq!(new_drop.fy, 0.0); // should be out of the h bounds and reseted
+        assert_eq!(new_drop.fy, 0.0); // should be out of the h bounds and reset
 
         // when tail_y < 0
         let mut new_drop = RainDrop::from_values(
@@ -460,7 +460,7 @@ mod tests {
             Duration::from_millis(1000),
             &mut rng,
         );
-        assert_eq!(new_drop.fy, 33.0); // should be reseted there
+        assert_eq!(new_drop.fy, 33.0); // should be reset there
     }
 
     #[test]

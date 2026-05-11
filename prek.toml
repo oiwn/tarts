@@ -1,0 +1,11 @@
+fail_fast = true
+
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "fmt", name = "cargo fmt", language = "system", entry = "cargo fmt --check", types = ["rust"], pass_filenames = false },
+  { id = "clippy", name = "cargo clippy", language = "system", entry = "cargo clippy --all-targets --all-features -- -D warnings", types = ["rust"], pass_filenames = false },
+  { id = "test", name = "cargo test", language = "system", entry = "cargo test --all-features", types = ["rust"], pass_filenames = false },
+  { id = "typos", name = "typos", language = "system", entry = "typos", pass_filenames = false },
+  { id = "gitleaks", name = "gitleaks", language = "system", entry = "gitleaks git --verbose", pass_filenames = false },
+]

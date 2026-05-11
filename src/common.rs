@@ -104,7 +104,7 @@ where
         buffered_stdout.flush()?;
         effect.update();
 
-        // stabilize fps if requred
+        // stabilize fps if required
         let ended_at = std::time::SystemTime::now();
         let delta = ended_at
             .duration_since(started_at)

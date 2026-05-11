@@ -2,8 +2,9 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::TerminalEffect;
 use crossterm::style;
 use derive_builder::Builder;
+use serde::{Deserialize, Serialize};
 
-#[derive(Builder, Default, Debug, Clone)]
+#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
 #[builder(public, setter(into))]
 pub struct BlankOptions {}
 

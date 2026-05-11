@@ -1,5 +1,15 @@
 # Recording tarts Effects as GIFs
 
+## TODO NOTE:
+
+There is new crate "https://github.com/joshka/betamax":
+
+```
+Betamax is a Rust-first terminal capture tool in the spirit of VHS. It reads tape files, runs commands in a PTY, feeds terminal output through libghostty-vt, rasterizes frames in process with cosmic-text and swash, and writes screenshots or animations.  
+```
+
+Need to consider integration of this.
+
 ## Goal
 Create clean, isolated recordings of tarts effects using Docker+Nix to prevent
 leaking sensitive information.

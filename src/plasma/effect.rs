@@ -12,7 +12,7 @@ pub struct PlasmaOptions {
     pub time_scale: f64,
     #[builder(default = "1.0")]
     pub spatial_scale: f64,
-    #[builder(default = "100.0")]
+    #[builder(default = "150.0")]
     pub color_speed: f64,
 }
 

@@ -11,7 +11,7 @@ windows:
     start-directory: ./
     panes:
       - shell_command:
-        - clear
+        - opencode
   - window_name: cmd1
     start-directory: ./
     panes:

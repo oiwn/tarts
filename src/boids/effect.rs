@@ -2,9 +2,29 @@ use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
 use crossterm::style;
 use derive_builder::Builder;
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub enum BoidCharset {
+    #[default]
+    Braille,
+    Arrow,
+    Simple,
+    Dot,
+}
+
+impl BoidCharset {
+    pub fn chars(&self) -> [char; 8] {
+        match self {
+            BoidCharset::Braille => ['⣤', '⢰', '⣰', '⡆', '⡇', '⠇', '⠛', '⠙'],
+            BoidCharset::Arrow => ['→', '↘', '↓', '↙', '←', '↖', '↑', '↗'],
+            BoidCharset::Simple => ['>', '>', 'v', 'v', '<', '<', '^', '^'],
+            BoidCharset::Dot => ['•'; 8],
+        }
+    }
+}
 
 // Individual boid
 #[derive(Clone)]
@@ -18,9 +38,15 @@ struct Boid {
 #[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
 #[builder(public, setter(into))]
 pub struct BoidsOptions {
+    #[builder(default)]
+    #[serde(skip)]
     pub screen_size: (u16, u16),
     #[builder(default = "100")]
-    boid_count: u16,
+    #[serde(skip)]
+    pub boid_count: u16,
+
+    #[builder(default = "1.0")]
+    pub boid_coeff: f32,
 
     // Separation parameters
     #[builder(default = "1.5")]
@@ -52,13 +78,16 @@ pub struct BoidsOptions {
     max_speed: f32,
     #[builder(default = "0.2")]
     min_speed: f32,
+
+    #[builder(default)]
+    charset: BoidCharset,
 }
 
 pub struct Boids {
     options: BoidsOptions,
     buffer: Buffer,
     boids: Vec<Boid>,
-    // rng: rand::prelude::ThreadRng,
+    charset_chars: [char; 8],
 }
 
 impl Boid {
@@ -71,28 +100,16 @@ impl Boid {
         }
     }
 
-    // Get character based on direction
-    fn get_direction_char(&self) -> char {
+    fn get_direction_char(&self, charset: &[char; 8]) -> char {
         let (vx, vy) = self.velocity;
         let angle = f32::atan2(vy, vx);
 
-        // Map angle to 8 directions
-        match ((angle / PI * 4.0).round() as i32 + 8) % 8 {
-            0 => '→',
-            1 => '↘',
-            2 => '↓',
-            3 => '↙',
-            4 => '←',
-            5 => '↖',
-            6 => '↑',
-            7 => '↗',
-            _ => '•',
-        }
+        let idx = ((angle / PI * 4.0).round() as i32 + 8) % 8;
+        charset[idx as usize]
     }
 
-    // Update character and color based on velocity
-    fn update_visual(&mut self) {
-        self.character = self.get_direction_char();
+    fn update_visual(&mut self, charset: &[char; 8]) {
+        self.character = self.get_direction_char(charset);
 
         // Speed-based color (green to white)
         let speed = (self.velocity.0.powi(2) + self.velocity.1.powi(2)).sqrt();
@@ -160,6 +177,8 @@ impl Boids {
         let height = options.screen_size.1 as f32;
 
         // Create initial boids with random positions and velocities
+        let charset_chars = options.charset.chars();
+
         let mut boids = Vec::with_capacity(options.boid_count as usize);
         for _ in 0..options.boid_count {
             let position =
@@ -169,7 +188,7 @@ impl Boids {
                 (rng.random_range(-1.0..1.0), rng.random_range(-1.0..1.0));
 
             let mut boid = Boid::new(position, velocity);
-            boid.update_visual();
+            boid.update_visual(&charset_chars);
             boids.push(boid);
         }
 
@@ -177,6 +196,7 @@ impl Boids {
             options,
             buffer,
             boids,
+            charset_chars,
         }
     }
 
@@ -309,13 +329,6 @@ impl Boids {
                     toward_center.1 * self.options.cohesion_weight * 0.03
                         + swirl_normalized.1 * self.options.swirl_factor * 0.02,
                 );
-
-                // cohesion_adjustments[i] = (
-                //     toward_center.0 * self.options.cohesion_weight * 0.01
-                //         + swirl_normalized.0 * self.options.swirl_factor * 0.01,
-                //     toward_center.1 * self.options.cohesion_weight * 0.01
-                //         + swirl_normalized.1 * self.options.swirl_factor * 0.01,
-                // );
             }
 
             // Apply border avoidance
@@ -422,7 +435,7 @@ impl Boids {
             }
 
             // Update visual representation
-            boid.update_visual();
+            boid.update_visual(&self.charset_chars);
         }
     }
 }

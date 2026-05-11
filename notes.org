@@ -3,7 +3,7 @@
 * Digital rain
 ** config which store per effect options
 ** DONE Add config
-** TODO Add valudation for config
+** TODO Add validation for config
 ** Improve readme (remove configuration section)
 ** make separate thing for collision detection
 ** DONE better CI/CD
@@ -44,6 +44,6 @@ map completely removed
 
 
 * Ideas
-** A lot of different objects 2x2 3x3 with different speeds flying arround with collisions
+** A lot of different objects 2x2 3x3 with different speeds flying around with collisions
 ** Pipes
 ** Some destructable environment?
