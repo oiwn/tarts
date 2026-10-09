@@ -100,7 +100,9 @@ cargo bench
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit pull requests, report bugs, and suggest features.
+Bug fixes and improvements are welcome! Please feel free to submit pull requests and report bugs.
+
+**New effects are not accepted without prior discussion.** Open an issue first so we can align on scope and design before any code is written.
 
 ## 📜 License
 

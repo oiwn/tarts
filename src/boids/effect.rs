@@ -130,11 +130,16 @@ impl TerminalEffect for Boids {
         );
 
         // Fill current buffer with boids
+        let width = self.options.screen_size.0 as usize;
+        let height = self.options.screen_size.1 as usize;
         for boid in &self.boids {
-            let x = boid.position.0.round() as usize
-                % self.options.screen_size.0 as usize;
-            let y = boid.position.1.round() as usize
-                % self.options.screen_size.1 as usize;
+            // skip on degenerate screens: the modulo below would divide by
+            // zero (issue #94)
+            if width == 0 || height == 0 {
+                break;
+            }
+            let x = boid.position.0.round() as usize % width;
+            let y = boid.position.1.round() as usize % height;
 
             curr_buffer.set(
                 x,
@@ -181,8 +186,11 @@ impl Boids {
 
         let mut boids = Vec::with_capacity(options.boid_count as usize);
         for _ in 0..options.boid_count {
-            let position =
-                (rng.random_range(0.0..width), rng.random_range(0.0..height));
+            // clamp sampling ranges for degenerate screens (issue #94)
+            let position = (
+                rng.random_range(0.0..width.max(1.0)),
+                rng.random_range(0.0..height.max(1.0)),
+            );
 
             let velocity =
                 (rng.random_range(-1.0..1.0), rng.random_range(-1.0..1.0));

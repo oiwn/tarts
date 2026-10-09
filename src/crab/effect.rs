@@ -344,8 +344,8 @@ impl Crab {
         let mut crabs = Vec::with_capacity(options.crab_count as usize);
         for _ in 0..options.crab_count {
             let position = (
-                rng.random_range(0.0..width * 0.8),
-                rng.random_range(0.0..height * 0.8),
+                rng.random_range(0.0..(width * 0.8).max(1.0)),
+                rng.random_range(0.0..(height * 0.8).max(1.0)),
             );
 
             // Random velocity, but ensure it's not too slow
@@ -358,28 +358,35 @@ impl Crab {
             crabs.push(CrabEntity::new(position, velocity, &mut rng));
         }
 
-        // ensure crabs won't start to close to each other
+        // ensure crabs won't start too close to each other; bounded attempts
+        // so degenerate screens can't spin forever
         let min_distance_squared = 100.0; // Adjust based on crab size
+        let mut attempts = vec![0u32; crabs.len()];
         let mut i = 0;
         while i < crabs.len() {
             let mut repositioned = false;
 
-            for j in 0..i {
-                let dx = crabs[i].position.0 - crabs[j].position.0;
-                let dy = crabs[i].position.1 - crabs[j].position.1;
-                let distance_squared = dx * dx + dy * dy;
+            if attempts[i] < 100 {
+                for j in 0..i {
+                    let dx = crabs[i].position.0 - crabs[j].position.0;
+                    let dy = crabs[i].position.1 - crabs[j].position.1;
+                    let distance_squared = dx * dx + dy * dy;
 
-                if distance_squared < min_distance_squared {
-                    // Reposition this crab
-                    crabs[i].position.0 = rng.random_range(0.0..width * 0.8);
-                    crabs[i].position.1 = rng.random_range(0.0..height * 0.8);
-                    repositioned = true;
-                    break;
+                    if distance_squared < min_distance_squared {
+                        // Reposition this crab
+                        crabs[i].position.0 =
+                            rng.random_range(0.0..(width * 0.8).max(1.0));
+                        crabs[i].position.1 =
+                            rng.random_range(0.0..(height * 0.8).max(1.0));
+                        attempts[i] += 1;
+                        repositioned = true;
+                        break;
+                    }
                 }
             }
 
             if !repositioned {
-                i += 1; // Only advance if no repositioning was needed
+                i += 1; // Only advance if no repositioning is needed (or we gave up)
             }
         }
 

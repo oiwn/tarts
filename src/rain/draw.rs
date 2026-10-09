@@ -37,11 +37,19 @@ pub fn pick_color(
             },
         },
         RainDropStyle::Back => {
-            let color = gradients[2][pos];
-            style::Color::Rgb {
-                r: color.r,
-                g: color.g,
-                b: color.b,
+            // clamp to the gradient row: drops can outgrow the palette at
+            // degenerate sizes (issue #94)
+            let color = gradients[2]
+                .get(pos)
+                .or_else(|| gradients[2].last())
+                .copied();
+            match color {
+                Some(c) => style::Color::Rgb {
+                    r: c.r,
+                    g: c.g,
+                    b: c.b,
+                },
+                None => style::Color::DarkGrey,
             }
         }
         _ => style::Color::DarkGrey,

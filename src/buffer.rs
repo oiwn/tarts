@@ -39,10 +39,10 @@ impl Buffer {
     // Keep in mind!
     // Indexing from 0: 0 1 2 3 4  | Square: 16
     // Indexing from 1: 1 2 3 4 5  | Square: 25
-    // Need to check width of height are greater than zero
+    // Degenerate (0) widths/heights are allowed: ptys/CI report them and
+    // effects must not crash (issue #94). Writes are clipped, not asserted.
     pub fn new(width: usize, height: usize) -> Self {
         // fill buffer with default values
-        debug_assert!(width > 0 && height > 0);
         Self {
             width,
             height,
@@ -60,7 +60,11 @@ impl Buffer {
 
     #[inline]
     pub fn set(&mut self, x: usize, y: usize, cell: Cell) {
-        debug_assert!(x < self.width && y < self.height);
+        // Clip out-of-bounds writes instead of panicking: effects may draw
+        // sprites past the edges of a degenerate or resized screen.
+        if x >= self.width || y >= self.height {
+            return;
+        }
         let index = self.index_of(x, y);
         self.buffer[index] = cell;
     }

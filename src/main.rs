@@ -115,7 +115,12 @@ fn main() -> Result<(), error::TartsError> {
 
     let fps = {
         let mut guard = TerminalGuard::new()?;
-        let (width, height) = terminal::size()?;
+        // ptys/CI/panes can report 0 rows/cols; clamp so effects never see a
+        // degenerate size (issue #94)
+        let (width, height) = {
+            let (w, h) = terminal::size()?;
+            (w.max(1), h.max(1))
+        };
 
         match args.screen_saver.as_str() {
             "matrix" => {

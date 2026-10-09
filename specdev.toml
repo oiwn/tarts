@@ -13,7 +13,7 @@ max_attempts = 3
 
 [acceptance]
 # Acceptance items every task gets, e.g. ["cargo test"]. specdev never runs them.
-default = []
+default = ["cargo fmt --check", "cargo test --lib", "cargo clippy"]
 
 [scope]
 # Globs never flagged as out of scope, e.g. ["Cargo.lock"]. specs/ is always allowed.

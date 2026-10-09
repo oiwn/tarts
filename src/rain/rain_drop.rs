@@ -73,10 +73,12 @@ impl RainDrop {
     ) -> Self {
         // pick random first character
         let style: RainDropStyle = rand::random();
-        let fx: u16 = rng.random_range(0..screen_size.0);
-        let fy: f32 = rng.random_range(0..screen_size.1 / 4) as f32;
+        // clamp sampling ranges so degenerate screens (issue #94) can't
+        // produce empty ranges
+        let fx: u16 = rng.random_range(0..screen_size.0.max(1));
+        let fy: f32 = rng.random_range(0..(screen_size.1 / 4).max(1)) as f32;
         let max_length: usize =
-            rng.random_range(4..=(2 * screen_size.1 / 3)) as usize;
+            rng.random_range(4..=(2 * screen_size.1 / 3).max(5)) as usize;
 
         let speed: u16 =
             rng.random_range(options.get_min_speed()..=options.get_max_speed());
@@ -146,11 +148,13 @@ impl RainDrop {
         self.body.insert(0, *CHARACTERS.choose(rng).unwrap());
         self.style = rand::random();
         self.fy = 0.0;
-        self.fx = rng.random_range(0..screen_size.0);
+        // clamp sampling ranges for degenerate screens (issue #94)
+        self.fx = rng.random_range(0..screen_size.0.max(1));
         self.speed =
             rng.random_range(options.get_min_speed()..=options.get_max_speed());
-        self.max_length =
-            rng.random_range(screen_size.1 / 4 + 1..=(screen_size.1 / 2)) as usize;
+        let min_length = screen_size.1 / 4 + 1;
+        let max_length = (screen_size.1 / 2).max(min_length);
+        self.max_length = rng.random_range(min_length..=max_length) as usize;
     }
 
     /// Grow condition

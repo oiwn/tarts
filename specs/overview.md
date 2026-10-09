@@ -39,6 +39,7 @@ Current effects:
 ## Technical Architecture
 
 ### Dependencies
+
 - **crossterm**: Terminal manipulation and input handling
 - **rand**: Random number generation for effects
 - **serde**: Configuration serialization
@@ -69,3 +70,15 @@ The `common::run_loop()` function provides the main animation engine:
 - **Benchmarking**: `cargo bench`
 - **Formatting**: `rustfmt` with custom configuration
 - **CI/CD**: GitHub Actions for testing, linting, and releases
+
+## Gotchas
+
+- **Deps policy**: deps tasks upgrade to latest major — run `cargo upgrade --incompatible`, not just compatible bumps. As of 2026-10-10 all 11 direct deps are at latest major; re-check when new majors land.
+- **Release policy**: no `[package] version` bumps in PRs; releases happen by pushing a `v*` tag only. `publish.yml` and `release-on-version-bump.yml` historically fired on main pushes touching Cargo.toml — a contributor's bump auto-created (unpublished) v0.1.26. Fix pending in tag-based-releases task.
+- **Degenerate terminal size panics**: crab (~effect.rs:347), matrix, life, boids panic with `cannot sample empty range` when the terminal reports 0 rows/cols (pty, CI, some panes). Butterfly survives via `.max(1.0)` range guards. Fix pending.
+- **`terrain` missing from `VALID_SAVERS`**: `tarts terrain` is wired in main.rs match but rejected by the allowlist. Rides along with the terrain redesign.
+- **life `reset()` is `todo!()`** (effect.rs:158): any resize event panics `tarts life` (issue #80, Windows-reported but cross-platform). `pipes` also has three `unreachable!()` arms — unaudited.
+- **`--check` mode needs a TTY**: enters the alternate screen, so piping fails with `Device not configured`; not usable in CI as-is. Its match also only knows matrix, life, maze, constellation, butterfly.
+- **butterfly_count is `#[serde(skip)]`**: config files can't set it directly; only `butterfly_coeff` scales it.
+- **PTY smoke test recipe**: `(sleep 2; printf 'q') | timeout 8 script -q /dev/null target/release/tarts <effect>` — exit 0 = clean quit. `script`'s pty reports size `0 0`, which doubles as a degenerate-size test.
+- **Pre-commit clippy gate is `-D warnings`**: plain `cargo clippy` passing is not enough before committing — run `cargo clippy --all-targets -- -D warnings` (0009 was born from this trap).

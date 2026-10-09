@@ -1,0 +1,55 @@
+# .github/workflows/deps-audit.yml
+name: Deps Audit
+
+on:
+  schedule:
+    # Fridays 08:00 UTC (3-4 AM US Eastern, midnight US Pacific)
+    - cron: "0 8 * * 5"
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".cargo/audit.toml"
+  push:
+    branches: [main]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".cargo/audit.toml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    name: Cargo audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Require lockfile updates with manifest changes
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          if grep -qE '(^|/)Cargo\.toml$' <<<"$changed_files" \
+            && ! grep -qx 'Cargo.lock' <<<"$changed_files"; then
+            echo "Cargo.toml changed without a matching Cargo.lock update" >&2
+            exit 1
+          fi
+      - name: Verify committed lockfile
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: Audit dependencies
+        run: cargo audit

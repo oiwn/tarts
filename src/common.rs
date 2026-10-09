@@ -34,26 +34,19 @@ where
 {
     while event::poll(Duration::from_millis(10))? {
         match event::read()? {
-            event::Event::Key(keyevent) => match keyevent {
-                event::KeyEvent {
-                    code: event::KeyCode::Char('q'),
-                    ..
-                }
-                | event::KeyEvent {
-                    code: event::KeyCode::Esc,
-                    ..
-                }
-                | event::KeyEvent {
-                    code: event::KeyCode::Char('c'),
-                    modifiers: event::KeyModifiers::CONTROL,
-                    ..
-                } => return Ok(false),
-
-                _ => {}
-            },
+            event::Event::Key(event::KeyEvent {
+                code: event::KeyCode::Char('q') | event::KeyCode::Esc,
+                ..
+            })
+            | event::Event::Key(event::KeyEvent {
+                code: event::KeyCode::Char('c'),
+                modifiers: event::KeyModifiers::CONTROL,
+                ..
+            }) => return Ok(false),
 
             event::Event::Resize(new_width, new_height) => {
-                effect.update_size(new_width, new_height);
+                // clamp degenerate sizes (issue #94) before the effect resets
+                effect.update_size(new_width.max(1), new_height.max(1));
                 effect.reset();
             }
 

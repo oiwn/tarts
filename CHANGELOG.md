@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-10-10 — fix life reset
+
+- Implemented life's todo!() reset() (issue #80): resize no longer panics the effect; rebuild-from-scratch with a regression test covering the resize path.
+- Task `0005-fix-life-reset`; source: https://github.com/oiwn/tarts/issues/80
+
+## 2026-10-10 — readme contributing policy
+
+- README Contributing section now states: bug fixes and improvements welcome; new effects require opening an issue for discussion first.
+- Task `0008-readme-contributing-policy`; source: user request during 0004 review
+
+## 2026-10-10 — fix degenerate size panic
+
+- Effects no longer panic or hang on degenerate terminal sizes: entry-point clamps (main.rs, common.rs resize), bounded crab spawn retries, per-effect range guards, clipping Buffer writes, plus regression tests at 0x0/1x1 (issue #94).
+- Task `0004-fix-degenerate-size-panic`; source: https://github.com/oiwn/tarts/issues/94
+
+## 2026-10-10 — tag based releases
+
+- Releases are tag-driven only: deleted release-on-version-bump.yml, reworked publish.yml onto v* tags with a tag↔manifest version guard, documented the push-a-tag flow in specs/release.md.
+- Task `0003-tag-based-releases`
+
+## 2026-10-10 — ci workflows
+
+- Two new workflows from exodata: deps-audit.yml (weekly + manifest-change cargo-audit) and opencode.yml (/oc inference + todo-to-issues), with the /oc job additionally gated to github.actor == 'oiwn'.
+- Task `0002-ci-workflows`
+
+## 2026-10-10 — deps update
+
+- Lockfile refresh: crossbeam-epoch RUSTSEC-2026-0204 fixed (0.9.21), chacha20 past yanked version, anyhow dropped; 19 fewer dep entries; all checks and smoke pass.
+- Task `0001-deps-update`
+
 ## [0.1.25] - 2026-05-11
 
 ### Added
