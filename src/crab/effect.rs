@@ -1,4 +1,5 @@
 use crate::buffer::{Buffer, Cell};
+use crate::collision::{self, BoundingBox, Collidable};
 use crate::common::{DefaultOptions, TerminalEffect};
 use crossterm::style;
 use derive_builder::Builder;
@@ -248,6 +249,17 @@ impl CrabEntity {
     }
 }
 
+impl Collidable for CrabEntity {
+    fn bounding_box(&self) -> BoundingBox {
+        BoundingBox {
+            x: self.position.0,
+            y: self.position.1,
+            width: self.frame_width as f32,
+            height: self.frame_height as f32,
+        }
+    }
+}
+
 impl TerminalEffect for Crab {
     fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
         let mut curr_buffer =
@@ -383,51 +395,38 @@ impl Crab {
 
     // Check for collisions between crabs and handle them
     fn check_crab_collisions(&mut self) {
-        let crab_count = self.crabs.len();
-        if crab_count < 2 {
+        if self.crabs.len() < 2 {
             return;
         }
 
-        // Simple collision detection based on proximity
-        for i in 0..crab_count {
-            for j in (i + 1)..crab_count {
-                let dx = self.crabs[i].position.0 - self.crabs[j].position.0;
-                let dy = self.crabs[i].position.1 - self.crabs[j].position.1;
-                let distance_squared = dx * dx + dy * dy;
+        for (i, j) in collision::find_collisions(&self.crabs) {
+            // Trigger special animation for both crabs
+            self.crabs[i].is_special = true;
+            self.crabs[i].special_timer = self.options.animation_speed * 5.0;
 
-                // If crabs are close enough, consider it a collision
-                if distance_squared < 36.0 {
-                    // Trigger special animation for both crabs
-                    self.crabs[i].is_special = true;
-                    self.crabs[i].special_timer =
-                        self.options.animation_speed * 5.0;
+            self.crabs[j].is_special = true;
+            self.crabs[j].special_timer = self.options.animation_speed * 5.0;
 
-                    self.crabs[j].is_special = true;
-                    self.crabs[j].special_timer =
-                        self.options.animation_speed * 5.0;
+            // Reverse directions
+            self.crabs[i].velocity.0 = -self.crabs[i].velocity.0;
+            self.crabs[j].velocity.0 = -self.crabs[j].velocity.0;
 
-                    // Reverse directions
-                    self.crabs[i].velocity.0 = -self.crabs[i].velocity.0;
-                    self.crabs[j].velocity.0 = -self.crabs[j].velocity.0;
+            // Add some vertical movement to avoid getting stuck
+            self.crabs[i].velocity.1 += self.rng.random_range(-0.5..0.5);
+            self.crabs[j].velocity.1 += self.rng.random_range(-0.5..0.5);
 
-                    // Add some vertical movement to avoid getting stuck
-                    self.crabs[i].velocity.1 += self.rng.random_range(-0.5..0.5);
-                    self.crabs[j].velocity.1 += self.rng.random_range(-0.5..0.5);
+            // Update directions based on new velocities
+            self.crabs[i].direction = if self.crabs[i].velocity.0 >= 0.0 {
+                Direction::Right
+            } else {
+                Direction::Left
+            };
 
-                    // Update directions based on new velocities
-                    self.crabs[i].direction = if self.crabs[i].velocity.0 >= 0.0 {
-                        Direction::Right
-                    } else {
-                        Direction::Left
-                    };
-
-                    self.crabs[j].direction = if self.crabs[j].velocity.0 >= 0.0 {
-                        Direction::Right
-                    } else {
-                        Direction::Left
-                    };
-                }
-            }
+            self.crabs[j].direction = if self.crabs[j].velocity.0 >= 0.0 {
+                Direction::Right
+            } else {
+                Direction::Left
+            };
         }
     }
 }

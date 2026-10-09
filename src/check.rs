@@ -123,9 +123,17 @@ pub fn run_test_for_effect(effect_name: &str, frames: usize) -> Result<()> {
             );
             test_effect(&mut constellation, frames)
         }
+        "butterfly" => {
+            let options = crate::butterfly::ButterflyOptionsBuilder::default()
+                .build()
+                .unwrap();
+            let mut butterfly =
+                crate::butterfly::Butterfly::new(options, terminal::size()?);
+            test_effect(&mut butterfly, frames)
+        }
         _ => {
             println!(
-                "Unknown effect: {}. Available effects are: matrix, life, maze, constellation",
+                "Unknown effect: {}. Available effects are: matrix, life, maze, constellation, butterfly",
                 effect_name
             );
             Ok(())

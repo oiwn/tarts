@@ -28,27 +28,39 @@ pub trait TerminalEffect {
     fn reset(&mut self);
 }
 
-pub fn process_input() -> Result<bool> {
-    if event::poll(Duration::from_millis(10))?
-        && let event::Event::Key(keyevent) = event::read()?
-        && (keyevent
-            == event::KeyEvent::new(
-                event::KeyCode::Char('q'),
-                event::KeyModifiers::NONE,
-            )
-            || keyevent
-                == event::KeyEvent::new(
-                    event::KeyCode::Esc,
-                    event::KeyModifiers::NONE,
-                )
-            || keyevent
-                == event::KeyEvent::new(
-                    event::KeyCode::Char('c'),
-                    event::KeyModifiers::CONTROL,
-                ))
-    {
-        return Ok(false);
+pub fn process_input<TE>(effect: &mut TE) -> Result<bool>
+where
+    TE: TerminalEffect,
+{
+    while event::poll(Duration::from_millis(10))? {
+        match event::read()? {
+            event::Event::Key(keyevent) => match keyevent {
+                event::KeyEvent {
+                    code: event::KeyCode::Char('q'),
+                    ..
+                }
+                | event::KeyEvent {
+                    code: event::KeyCode::Esc,
+                    ..
+                }
+                | event::KeyEvent {
+                    code: event::KeyCode::Char('c'),
+                    modifiers: event::KeyModifiers::CONTROL,
+                    ..
+                } => return Ok(false),
+
+                _ => {}
+            },
+
+            event::Event::Resize(new_width, new_height) => {
+                effect.update_size(new_width, new_height);
+                effect.reset();
+            }
+
+            _ => {}
+        }
     }
+
     Ok(true)
 }
 
@@ -77,19 +89,9 @@ where
     // main loop
     while is_running {
         let started_at: std::time::SystemTime = std::time::SystemTime::now();
-        is_running = process_input()?;
 
-        #[allow(clippy::single_match)]
-        while event::poll(Duration::from_millis(10))? {
-            match event::read()? {
-                event::Event::Resize(new_width, new_height) => {
-                    // Update size and reset effect
-                    effect.update_size(new_width, new_height);
-                    effect.reset();
-                }
-                _ => {}
-            }
-        }
+        // process_input
+        is_running = process_input(effect)?;
 
         // draw diff
         let queue = effect.get_diff();
