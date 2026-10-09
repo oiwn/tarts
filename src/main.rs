@@ -5,7 +5,9 @@ use std::{io, process};
 mod blank;
 mod boids;
 mod buffer;
+mod butterfly;
 mod check;
+mod collision;
 mod common;
 mod config;
 mod constellation;
@@ -36,6 +38,7 @@ const VALID_SAVERS: &[&str] = &[
     "plasma",
     "fire",
     "constellation",
+    "butterfly",
 ];
 
 #[derive(Debug)]
@@ -178,6 +181,12 @@ fn main() -> Result<(), error::TartsError> {
                     constellation::Constellation::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut constellation, None)?
             }
+            "butterfly" => {
+                let options = config.get_butterfly_options((width, height));
+                let mut butterfly =
+                    butterfly::Butterfly::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut butterfly, None)?
+            }
             "terrain" => {
                 let options = config.get_terrain_options();
                 let mut terrain = terrain::Terrain::new(options, (width, height));
@@ -272,6 +281,7 @@ fn print_help() {
     println!("    fire        Fire simulation");
     println!("    terrain     Terrain generation");
     println!("    constellation  Drifting stars and dotted connections");
+    println!("    butterfly   Butterflies floating around");
     println!("    blank       Blank screen");
     println!();
     println!("OPTIONS:");

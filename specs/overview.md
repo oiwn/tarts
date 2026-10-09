@@ -33,6 +33,7 @@ Current effects:
 - `plasma` - Plasma effect
 - `fire` - Fire simulation
 - `terrain` - Terrain generation
+- `butterfly` - Butterflies floating around
 - `blank` - Blank screen (testing)
 
 ## Technical Architecture

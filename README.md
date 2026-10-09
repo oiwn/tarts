@@ -72,6 +72,7 @@ tarts pipes    # Pipes effect
 tarts fire     # Fire effect
 tarts plasma   # Electric plasma effect
 tarts constellation  # Drifting stars and dotted constellations
+tarts butterfly # Fluttering butterflies floating around
 tarts blank    # Simple blank screen
 ```
 

@@ -1,6 +1,7 @@
 use crate::{
     blank::{BlankOptions, BlankOptionsBuilder},
     boids::{BoidsOptions, BoidsOptionsBuilder},
+    butterfly::{ButterflyOptions, ButterflyOptionsBuilder},
     constellation::{ConstellationOptions, ConstellationOptionsBuilder},
     crab::{CrabOptions, CrabOptionsBuilder},
     cube::{CubeOptions, CubeOptionsBuilder},
@@ -67,6 +68,8 @@ pub struct Config {
     pub terrain: TerrainOptions,
     #[serde(default)]
     pub constellation: ConstellationOptions,
+    #[serde(default)]
+    pub butterfly: ButterflyOptions,
 }
 
 impl Config {
@@ -182,6 +185,18 @@ impl Config {
     pub fn get_constellation_options(&self) -> ConstellationOptions {
         self.constellation.clone()
     }
+
+    pub fn get_butterfly_options(
+        &self,
+        screen_size: (u16, u16),
+    ) -> ButterflyOptions {
+        let mut options = self.butterfly.clone();
+        let (w, h) = screen_size;
+        let screen_area = w as f32 * h as f32;
+        options.butterfly_count = (screen_area / 1000.0 * options.butterfly_coeff)
+            .clamp(2.0, 10.0) as u16;
+        options
+    }
 }
 
 impl Default for Config {
@@ -200,6 +215,7 @@ impl Default for Config {
             fire: FireOptionsBuilder::default().build().unwrap(),
             terrain: TerrainOptionsBuilder::default().build().unwrap(),
             constellation: ConstellationOptionsBuilder::default().build().unwrap(),
+            butterfly: ButterflyOptionsBuilder::default().build().unwrap(),
         }
     }
 }
