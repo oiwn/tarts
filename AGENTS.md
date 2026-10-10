@@ -32,6 +32,11 @@ cargo test --lib   # Run library tests
 cargo clippy       # Run linter
 ```
 
+### Agent Rules
+
+- Edit files only with a proper patch tool (e.g. `apply_patch` or an equivalent structured edit). Never rewrite files via ad-hoc scripts (python/sed one-liners) — silent partial rewrites are how bugs get in.
+- The pre-commit clippy gate is `-D warnings`: run `cargo clippy --all-targets -- -D warnings` before handing work back.
+
 ### Installation Methods
 - **Homebrew**: `brew install oiwn/tap/tarts`
 - **Cargo**: `cargo install tarts`

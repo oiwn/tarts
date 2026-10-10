@@ -4,12 +4,12 @@ environment:
 shell_command_before: "clear"
 windows:
   - window_name: code
-    focus: true
     start-directory: ./
     panes:
       - shell_command:
         - hx
   - window_name: agent
+    focus: true
     start-directory: ./
     panes:
       - shell_command:

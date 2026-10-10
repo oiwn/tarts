@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-10-10 — clippy collapsible match
+
+- Collapsed the nested key-event match in process_input into the outer pattern (clippy collapsible_match); unblocks the pre-commit clippy -D warnings gate.
+- Task `0009-clippy-collapsible-match`; source: pre-commit hook failure during user commit, 2026-10-10
+
 ## 2026-10-10 — fix life reset
 
 - Implemented life's todo!() reset() (issue #80): resize no longer panics the effect; rebuild-from-scratch with a regression test covering the resize path.

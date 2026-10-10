@@ -21,6 +21,8 @@ Each effect is implemented as a separate module with:
 - `effect.rs`: Main effect implementation
 - `mod.rs`: Module exports and trait implementations
 
+`terrain` goes further (2026-10-11 refactor): one file per simulation layer — `world.rs` (multi-writer commons), `elevation.rs`, `hydro.rs`, `climate.rs`, `erosion.rs`, `tectonics.rs`, `life.rs`, `sim.rs` (composition root with runtime on/off flags via `TerrainOptions::disabled`), `render.rs` (all views), `effect.rs` (terminal adapter). Sim files are crossterm-free — groundwork for perf work and wasm.
+
 Current effects:
 - `matrix` - Matrix digital rain
 - `life` - Conway's Game of Life
@@ -76,7 +78,6 @@ The `common::run_loop()` function provides the main animation engine:
 - **Deps policy**: deps tasks upgrade to latest major — run `cargo upgrade --incompatible`, not just compatible bumps. As of 2026-10-10 all 11 direct deps are at latest major; re-check when new majors land.
 - **Release policy**: no `[package] version` bumps in PRs; releases happen by pushing a `v*` tag only. `publish.yml` and `release-on-version-bump.yml` historically fired on main pushes touching Cargo.toml — a contributor's bump auto-created (unpublished) v0.1.26. Fix pending in tag-based-releases task.
 - **Degenerate terminal size panics**: crab (~effect.rs:347), matrix, life, boids panic with `cannot sample empty range` when the terminal reports 0 rows/cols (pty, CI, some panes). Butterfly survives via `.max(1.0)` range guards. Fix pending.
-- **`terrain` missing from `VALID_SAVERS`**: `tarts terrain` is wired in main.rs match but rejected by the allowlist. Rides along with the terrain redesign.
 - **life `reset()` is `todo!()`** (effect.rs:158): any resize event panics `tarts life` (issue #80, Windows-reported but cross-platform). `pipes` also has three `unreachable!()` arms — unaudited.
 - **`--check` mode needs a TTY**: enters the alternate screen, so piping fails with `Device not configured`; not usable in CI as-is. Its match also only knows matrix, life, maze, constellation, butterfly.
 - **butterfly_count is `#[serde(skip)]`**: config files can't set it directly; only `butterfly_coeff` scales it.

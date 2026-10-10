@@ -1,6 +1,6 @@
 ---
 id: 0009-clippy-collapsible-match
-status: approval
+status: done
 scope: [src/common.rs]
 created: 2026-10-10
 source: pre-commit hook failure during user commit, 2026-10-10
@@ -38,3 +38,5 @@ Single match expression rewritten in src/common.rs per clippy's own suggestion; 
 - 2026-10-10 advance in-progress/implement → in-progress/verify
 - 2026-10-10 advance in-progress/verify → in-progress/review
 - 2026-10-10 advance in-progress/review → approval
+- 2026-10-10 approved: ok committed done 0009
+- 2026-10-10 advance approval → done

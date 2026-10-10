@@ -26,6 +26,9 @@ pub trait TerminalEffect {
     fn update_size(&mut self, width: u16, height: u16);
     /// Reset effect, i think it's useful in case of size/options update
     fn reset(&mut self);
+    /// Non-exit key press. Default: ignore. Effects that want display
+    /// controls (e.g. terrain's layer cycling) override this.
+    fn handle_key(&mut self, _key: event::KeyEvent) {}
 }
 
 pub fn process_input<TE>(effect: &mut TE) -> Result<bool>
@@ -43,6 +46,8 @@ where
                 modifiers: event::KeyModifiers::CONTROL,
                 ..
             }) => return Ok(false),
+
+            event::Event::Key(key) => effect.handle_key(key),
 
             event::Event::Resize(new_width, new_height) => {
                 // clamp degenerate sizes (issue #94) before the effect resets

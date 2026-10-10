@@ -39,6 +39,7 @@ const VALID_SAVERS: &[&str] = &[
     "fire",
     "constellation",
     "butterfly",
+    "terrain",
 ];
 
 #[derive(Debug)]

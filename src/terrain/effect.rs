@@ -1,8 +1,14 @@
+//! Terminal adapter for the terrain world: options, the `TerminalEffect`
+//! wiring, and key handling. The simulation lives in `sim` (composed
+//! from the layer modules); drawing lives in `render`.
+
 use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
-use crate::terrain::noise::PerlinNoise;
+use crate::terrain::render::{Renderer, rgb};
+use crate::terrain::sim::{Sim, SimLayer};
 use crossterm::style;
 use derive_builder::Builder;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
@@ -10,125 +16,115 @@ use serde::{Deserialize, Serialize};
 pub struct TerrainOptions {
     #[builder(default = "42")]
     pub seed: u32,
-    #[builder(default = "0.02")]
+    /// Base frequency of the continent-scale field (lower = bigger landmasses).
+    #[builder(default = "0.022")]
     pub scale: f64,
-    #[builder(default = "4")]
+    /// Base frequency of the detail field (coastlines, hills).
+    #[builder(default = "0.09")]
+    pub detail_scale: f64,
+    #[builder(default = "3")]
     pub octaves: i32,
+    #[builder(default = "4")]
+    pub detail_octaves: i32,
     #[builder(default = "0.5")]
     pub persistence: f64,
+    /// Domain-warp displacement in cells.
+    #[builder(default = "9.0")]
+    pub warp_strength: f64,
+    /// Spatial frequency of the warp field itself.
+    #[builder(default = "0.025")]
+    pub warp_scale: f64,
+    /// Simulation layers to skip at runtime (empty = all on). This is
+    /// groundwork for perf work, not a display control — layer cycling
+    /// stays on the `l`/`k` keys.
+    #[serde(default)]
+    #[builder(default)]
+    pub disabled: Vec<SimLayer>,
 }
 
 pub struct Terrain {
     pub screen_size: (u16, u16),
     options: TerrainOptions,
     buffer: Buffer,
-    noise: PerlinNoise,
-    generated: bool, // Only generate once
-}
-
-impl TerminalEffect for Terrain {
-    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
-        if !self.generated {
-            let mut curr_buffer = Buffer::new(
-                self.screen_size.0 as usize,
-                self.screen_size.1 as usize,
-            );
-
-            self.generate_noise(&mut curr_buffer);
-
-            let diff = self.buffer.diff(&curr_buffer);
-            self.buffer = curr_buffer;
-            self.generated = true;
-            diff
-        } else {
-            Vec::new() // No changes after initial generation
-        }
-    }
-
-    fn update(&mut self) {
-        // No updates needed for static noise
-    }
-
-    fn update_size(&mut self, width: u16, height: u16) {
-        self.screen_size = (width, height);
-        self.reset();
-    }
-
-    fn reset(&mut self) {
-        self.buffer =
-            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
-        self.generated = false;
-    }
+    sim: Sim,
+    renderer: Renderer,
+    rng: rand::prelude::ThreadRng,
 }
 
 impl Terrain {
     pub fn new(options: TerrainOptions, screen_size: (u16, u16)) -> Self {
-        let buffer = Buffer::new(screen_size.0 as usize, screen_size.1 as usize);
-        let noise = PerlinNoise::new(options.seed);
-
+        let width = screen_size.0.max(1);
+        let height = screen_size.1.max(1);
         Self {
-            screen_size,
+            screen_size: (width, height),
+            buffer: Buffer::new(width as usize, height as usize),
+            sim: Sim::new(&options, (width, height)),
             options,
-            buffer,
-            noise,
-            generated: false,
+            renderer: Renderer::new(),
+            rng: rand::rng(),
+        }
+    }
+}
+
+impl TerminalEffect for Terrain {
+    fn handle_key(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Char('l') => self.renderer.view = self.renderer.view.next(),
+            KeyCode::Char('k') => self.renderer.view = self.renderer.view.prev(),
+            _ => {}
         }
     }
 
-    fn generate_noise(&self, buffer: &mut Buffer) {
-        let width = self.screen_size.0 as usize;
-        let height = self.screen_size.1 as usize;
+    fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
+        let mut curr_buffer =
+            Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
 
-        for y in 0..height {
-            for x in 0..width {
-                // Generate noise value
-                let noise_value = self.noise.octave_noise_2d(
-                    x as f64,
-                    y as f64,
-                    self.options.octaves,
-                    self.options.persistence,
-                    self.options.scale,
-                );
-
-                // Normalize to 0-1 range
-                let normalized = (noise_value + 1.0) / 2.0;
-
-                let (character, color) = self.get_noise_visualization(normalized);
-
-                buffer.set(
+        for y in 0..curr_buffer.height {
+            for x in 0..curr_buffer.width {
+                let (character, color) = self.renderer.classify(&self.sim, x, y);
+                curr_buffer.set(
                     x,
                     y,
-                    Cell::new(character, color, style::Attribute::Bold),
+                    Cell::new(character, color, style::Attribute::NormalIntensity),
                 );
             }
         }
+
+        // HUD: always say which layer is on screen.
+        let label = self.renderer.hud_label();
+        for (n, ch) in label.chars().enumerate() {
+            if n < curr_buffer.width {
+                curr_buffer.set(
+                    n,
+                    0,
+                    Cell::new(
+                        ch,
+                        rgb(210, 212, 216),
+                        style::Attribute::NormalIntensity,
+                    ),
+                );
+            }
+        }
+
+        let diff = self.buffer.diff(&curr_buffer);
+        self.buffer = curr_buffer;
+        diff
     }
 
-    fn get_noise_visualization(&self, value: f64) -> (char, style::Color) {
-        // Simple grayscale visualization of noise
-        let intensity = (value * 255.0) as u8;
+    fn update(&mut self) {
+        self.sim.tick();
+    }
 
-        let character = match value {
-            v if v < 0.1 => ' ',
-            v if v < 0.2 => '.',
-            v if v < 0.3 => ':',
-            v if v < 0.4 => '-',
-            v if v < 0.5 => '=',
-            v if v < 0.6 => '+',
-            v if v < 0.7 => '*',
-            v if v < 0.8 => '#',
-            v if v < 0.9 => '%',
-            _ => '@',
-        };
+    fn update_size(&mut self, width: u16, height: u16) {
+        self.screen_size = (width.max(1), height.max(1));
+        self.reset();
+    }
 
-        (
-            character,
-            style::Color::Rgb {
-                r: intensity,
-                g: intensity,
-                b: intensity,
-            },
-        )
+    fn reset(&mut self) {
+        // Re-roll the world from fresh entropy.
+        self.options.seed = self.rng.random();
+        self.sim = Sim::new(&self.options, self.screen_size);
     }
 }
 
@@ -136,12 +132,81 @@ impl DefaultOptions for Terrain {
     type Options = TerrainOptions;
 
     fn default_options(_width: u16, _height: u16) -> Self::Options {
-        TerrainOptionsBuilder::default()
-            .seed(42u32)
-            .scale(0.02)
-            .octaves(4)
-            .persistence(0.5)
-            .build()
-            .unwrap()
+        TerrainOptionsBuilder::default().build().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terrain::render::Layer;
+
+    fn terrain(seed: u32, w: usize, h: usize) -> Terrain {
+        let options = TerrainOptionsBuilder::default().seed(seed).build().unwrap();
+        Terrain::new(options, (w as u16, h as u16))
+    }
+
+    #[test]
+    fn reset_re_rolls_the_world() {
+        let mut t = terrain(11, 60, 20);
+        let before: Vec<f32> = t.sim.world.elevation.clone();
+        t.reset();
+        let differing = before
+            .iter()
+            .zip(t.sim.world.elevation.iter())
+            .filter(|(a, b)| (**a - **b).abs() > 0.01)
+            .count();
+        assert!(differing > 100, "reset produced a near-identical world");
+    }
+
+    #[test]
+    fn survives_degenerate_sizes() {
+        for (w, h) in [(0u16, 0u16), (0, 24), (80, 0), (1, 1)] {
+            let options = TerrainOptionsBuilder::default().build().unwrap();
+            let mut t = Terrain::new(options, (w, h));
+            t.update();
+            t.get_diff();
+        }
+    }
+
+    #[test]
+    fn layer_cycling_on_l_and_k() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut t = terrain(31, 60, 20);
+        let l = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE);
+        let k = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
+        assert_eq!(t.renderer.view, Layer::Biome);
+        // Forward: l walks the whole cycle and wraps.
+        for expected in [
+            Layer::Plates,
+            Layer::Height,
+            Layer::Hydro,
+            Layer::Temp,
+            Layer::Wind,
+            Layer::Humidity,
+            Layer::Biome,
+        ] {
+            t.handle_key(l);
+            assert_eq!(t.renderer.view, expected);
+            // Every layer renders without panicking.
+            t.update();
+            t.get_diff();
+        }
+        // Backward: k walks the cycle in reverse.
+        for expected in [
+            Layer::Humidity,
+            Layer::Wind,
+            Layer::Temp,
+            Layer::Hydro,
+            Layer::Height,
+            Layer::Plates,
+            Layer::Biome,
+        ] {
+            t.handle_key(k);
+            assert_eq!(t.renderer.view, expected);
+            t.update();
+            t.get_diff();
+        }
     }
 }

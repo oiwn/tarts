@@ -27,6 +27,7 @@ providing stunning visual effects.
 - 🔥 **Fire**: A cozy fireplace effect to warm up your terminal
 - ⚡ **Plasma**: Electric plasma effect with vibrant colors and smooth animations
 - ✨ **Constellation**: Drifting stars that connect with dotted lines and twinkle
+- 🗺️ **Terrain**: A living world map — rivers, rain, erosion and seasons simulated in real time (tectonics and fire arrive in a later phase)
 - 🎯 **Blank**: Simple blank screen with minimal resource usage
 
 ## 🚀 Installation
@@ -73,6 +74,7 @@ tarts fire     # Fire effect
 tarts plasma   # Electric plasma effect
 tarts constellation  # Drifting stars and dotted constellations
 tarts butterfly # Fluttering butterflies floating around
+tarts terrain   # Living world map: rivers, rain, erosion, seasons
 tarts blank    # Simple blank screen
 ```
 
