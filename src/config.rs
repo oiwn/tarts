@@ -12,8 +12,8 @@ use crate::{
     maze::{MazeOptions, MazeOptionsBuilder},
     pipes::{PipesOptions, PipesOptionsBuilder},
     plasma::{PlasmaOptions, PlasmaOptionsBuilder},
+    pocketworld::{PocketWorldOptions, PocketWorldOptionsBuilder},
     rain::digital_rain::{DigitalRainOptions, DigitalRainOptionsBuilder},
-    terrain::{TerrainOptions, TerrainOptionsBuilder},
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -65,7 +65,7 @@ pub struct Config {
     #[serde(default)]
     pub fire: FireOptions,
     #[serde(default)]
-    pub terrain: TerrainOptions,
+    pub pocketworld: PocketWorldOptions,
     #[serde(default)]
     pub constellation: ConstellationOptions,
     #[serde(default)]
@@ -178,8 +178,8 @@ impl Config {
         self.fire.clone()
     }
 
-    pub fn get_terrain_options(&self) -> TerrainOptions {
-        self.terrain.clone()
+    pub fn get_pocketworld_options(&self) -> PocketWorldOptions {
+        self.pocketworld.clone()
     }
 
     pub fn get_constellation_options(&self) -> ConstellationOptions {
@@ -213,7 +213,7 @@ impl Default for Config {
             pipes: PipesOptionsBuilder::default().build().unwrap(),
             plasma: PlasmaOptionsBuilder::default().build().unwrap(),
             fire: FireOptionsBuilder::default().build().unwrap(),
-            terrain: TerrainOptionsBuilder::default().build().unwrap(),
+            pocketworld: PocketWorldOptionsBuilder::default().build().unwrap(),
             constellation: ConstellationOptionsBuilder::default().build().unwrap(),
             butterfly: ButterflyOptionsBuilder::default().build().unwrap(),
         }

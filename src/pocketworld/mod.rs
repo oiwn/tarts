@@ -11,4 +11,4 @@ pub mod tectonics;
 pub mod world;
 
 #[allow(unused)]
-pub use effect::{Terrain, TerrainOptions, TerrainOptionsBuilder};
+pub use effect::{PocketWorld, PocketWorldOptions, PocketWorldOptionsBuilder};

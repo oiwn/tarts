@@ -74,7 +74,7 @@ tarts fire     # Fire effect
 tarts plasma   # Electric plasma effect
 tarts constellation  # Drifting stars and dotted constellations
 tarts butterfly # Fluttering butterflies floating around
-tarts terrain   # Living world map: rivers, rain, erosion, seasons
+tarts pocketworld # Living pocket world: rivers, rain, erosion, seasons, plates
 tarts blank    # Simple blank screen
 ```
 

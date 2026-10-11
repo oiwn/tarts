@@ -13,4 +13,3 @@
 - **0004-fix-degenerate-size-panic** — done — fix degenerate size panic (https://github.com/oiwn/tarts/issues/94)
 - **0005-fix-life-reset** — done — fix life reset (https://github.com/oiwn/tarts/issues/80)
 - **0008-readme-contributing-policy** — done — readme contributing policy (user request during 0004 review)
-- **0009-clippy-collapsible-match** — done — clippy collapsible match (pre-commit hook failure during user commit, 2026-10-10)

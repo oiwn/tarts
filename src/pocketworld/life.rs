@@ -4,9 +4,9 @@
 //! ash fertilizes regrowth — self-balancing, seeded-deterministic.
 //! Flooding reaches here for free through the hydro pipes.
 
-use crate::terrain::climate::{Climate, temp_at};
-use crate::terrain::hydro::WET_MIN;
-use crate::terrain::world::World;
+use crate::pocketworld::climate::{Climate, temp_at};
+use crate::pocketworld::hydro::WET_MIN;
+use crate::pocketworld::world::World;
 use rand::RngExt;
 use rand::rngs::StdRng;
 

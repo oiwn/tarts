@@ -1,28 +1,28 @@
 //! Composition root: the world commons plus the layer objects, ticked
 //! in one canonical order. Layers are enabled/disabled at runtime (`on`
-//! flags, composed from `TerrainOptions::disabled`); a disabled layer
+//! flags, composed from `PocketWorldOptions::disabled`); a disabled layer
 //! keeps its state frozen and its steps are skipped. The tick order is
 //! canonical — layers interleave (clouds rain between ocean relaxation
 //! and springs) and the single RNG stream depends on it, so all-on
 //! replays are deterministic and skipping a layer shifts the stream for
 //! the rest.
 
-use crate::terrain::climate::Climate;
-use crate::terrain::effect::TerrainOptions;
-use crate::terrain::elevation;
-use crate::terrain::erosion::Erosion;
-use crate::terrain::hydro::Hydro;
-use crate::terrain::life::Life;
-use crate::terrain::noise::PerlinNoise;
-use crate::terrain::tectonics::Tectonics;
-use crate::terrain::world::World;
+use crate::pocketworld::climate::Climate;
+use crate::pocketworld::effect::PocketWorldOptions;
+use crate::pocketworld::elevation;
+use crate::pocketworld::erosion::Erosion;
+use crate::pocketworld::hydro::Hydro;
+use crate::pocketworld::life::Life;
+use crate::pocketworld::noise::PerlinNoise;
+use crate::pocketworld::tectonics::Tectonics;
+use crate::pocketworld::world::World;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
 /// Screen-time seconds per simulation tick.
 const TIME_STEP: f64 = 0.033;
 
-/// Toggleable simulation layers. `TerrainOptions::disabled` names the
+/// Toggleable simulation layers. `PocketWorldOptions::disabled` names the
 /// ones to skip; every layer runs by default. `Elevation` is not here:
 /// the height field is generated once and written only by tectonics and
 /// erosion.
@@ -49,7 +49,10 @@ pub(crate) struct Sim {
 }
 
 impl Sim {
-    pub(crate) fn new(options: &TerrainOptions, screen_size: (u16, u16)) -> Self {
+    pub(crate) fn new(
+        options: &PocketWorldOptions,
+        screen_size: (u16, u16),
+    ) -> Self {
         let w = (screen_size.0 as usize).max(1);
         let h = (screen_size.1 as usize).max(1);
         let cells = w * h;
@@ -97,7 +100,7 @@ impl Sim {
 
     /// World generation, in the historical order: elevation + sea fill +
     /// stretch, springs, plates, biome thresholds, first classification.
-    fn generate(&mut self, options: &TerrainOptions) {
+    fn generate(&mut self, options: &PocketWorldOptions) {
         elevation::generate(&mut self.world, options);
         self.hydro.place_springs(&self.world);
         self.tectonics.generate(&self.world, &mut self.rng);
@@ -146,15 +149,18 @@ impl Sim {
 /// Test constructor: a Sim with the given seed and grid.
 #[cfg(test)]
 pub(crate) fn test_sim(seed: u32, w: usize, h: usize) -> Sim {
-    use crate::terrain::effect::TerrainOptionsBuilder;
-    let options = TerrainOptionsBuilder::default().seed(seed).build().unwrap();
+    use crate::pocketworld::effect::PocketWorldOptionsBuilder;
+    let options = PocketWorldOptionsBuilder::default()
+        .seed(seed)
+        .build()
+        .unwrap();
     Sim::new(&options, (w as u16, h as u16))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terrain::effect::TerrainOptionsBuilder;
+    use crate::pocketworld::effect::PocketWorldOptionsBuilder;
 
     #[test]
     fn oceans_stay_filled_and_water_stays_sane() {
@@ -255,7 +261,7 @@ mod tests {
 
     #[test]
     fn layers_can_be_disabled_at_runtime() {
-        let options = TerrainOptionsBuilder::default()
+        let options = PocketWorldOptionsBuilder::default()
             .seed(23u32)
             .disabled(vec![SimLayer::Climate, SimLayer::Life])
             .build()

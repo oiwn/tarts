@@ -21,7 +21,7 @@ Each effect is implemented as a separate module with:
 - `effect.rs`: Main effect implementation
 - `mod.rs`: Module exports and trait implementations
 
-`terrain` goes further (2026-10-11 refactor): one file per simulation layer — `world.rs` (multi-writer commons), `elevation.rs`, `hydro.rs`, `climate.rs`, `erosion.rs`, `tectonics.rs`, `life.rs`, `sim.rs` (composition root with runtime on/off flags via `TerrainOptions::disabled`), `render.rs` (all views), `effect.rs` (terminal adapter). Sim files are crossterm-free — groundwork for perf work and wasm.
+`pocketworld` goes further (2026-10-11 refactor, renamed from `terrain`): one file per simulation layer — `world.rs` (multi-writer commons), `elevation.rs`, `hydro.rs`, `climate.rs`, `erosion.rs`, `tectonics.rs`, `life.rs`, `sim.rs` (composition root with runtime on/off flags via `PocketWorldOptions::disabled`), `render.rs` (all views), `effect.rs` (terminal adapter). Sim files are crossterm-free — groundwork for perf work and wasm.
 
 Current effects:
 - `matrix` - Matrix digital rain
@@ -34,7 +34,7 @@ Current effects:
 - `pipes` - Pipe maze animation
 - `plasma` - Plasma effect
 - `fire` - Fire simulation
-- `terrain` - Terrain generation
+- `pocketworld` - Living pocket world (renamed from `terrain`, 2026-10-11): rivers, weather, seasons, plates, life
 - `butterfly` - Butterflies floating around
 - `blank` - Blank screen (testing)
 
@@ -82,4 +82,4 @@ The `common::run_loop()` function provides the main animation engine:
 - **`--check` mode needs a TTY**: enters the alternate screen, so piping fails with `Device not configured`; not usable in CI as-is. Its match also only knows matrix, life, maze, constellation, butterfly.
 - **butterfly_count is `#[serde(skip)]`**: config files can't set it directly; only `butterfly_coeff` scales it.
 - **PTY smoke test recipe**: `(sleep 2; printf 'q') | timeout 8 script -q /dev/null target/release/tarts <effect>` — exit 0 = clean quit. `script`'s pty reports size `0 0`, which doubles as a degenerate-size test.
-- **Pre-commit clippy gate is `-D warnings`**: plain `cargo clippy` passing is not enough before committing — run `cargo clippy --all-targets -- -D warnings` (0009 was born from this trap).
+- **Pre-commit clippy gate is `-D warnings`**: plain `cargo clippy` passing is not enough before committing — run `cargo clippy --all-targets -- -D warnings`.

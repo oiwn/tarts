@@ -5,8 +5,8 @@
 //! Temperature and wind are derived, never stored: f(latitude,
 //! elevation, time).
 
-use crate::terrain::hydro::WET_MIN;
-use crate::terrain::world::World;
+use crate::pocketworld::hydro::WET_MIN;
+use crate::pocketworld::world::World;
 use rand::RngExt;
 use rand::rngs::StdRng;
 
@@ -257,7 +257,7 @@ pub(crate) fn wind_at(world: &World, x: usize, y: usize) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terrain::sim::test_sim;
+    use crate::pocketworld::sim::test_sim;
 
     #[test]
     fn clouds_spawn_drift_and_carry_water() {

@@ -3,7 +3,7 @@
 //! mountain springs, and the emergent ocean/lake classification.
 //! Rivers have momentum because flux is persistent state, not scratch.
 
-use crate::terrain::world::World;
+use crate::pocketworld::world::World;
 
 /// How fast an ocean cell relaxes back toward its fill depth: the ocean is a
 /// boundary condition (connected to the unsimulated rest of the planet), not
@@ -252,7 +252,7 @@ impl Hydro {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terrain::sim::test_sim;
+    use crate::pocketworld::sim::test_sim;
 
     #[test]
     fn ocean_classified_and_filled() {

@@ -12,7 +12,7 @@ The session book. One task = one PR, merged one by one. No version bumps until a
 - [x] fix-degenerate-size-panic — DONE (0x0 panics + crab hang; 8 src files + tests)
 - [x] fix-life-reset — DONE (issue #80 resize panic fixed; src/life/effect.rs)
 - [x] readme-contributing-policy (0008) — DONE (new effects need an issue first)
-- [x] terrain dynamic-world — single working task 0006; rounds 1-5b done; layer-file refactor + `k` key done 2026-10-11; dynamics pass remains — see 0006
+- [x] pocketworld (0006, renamed from terrain 2026-10-11) — rounds 1-5b done; layer-file refactor + `k` key done 2026-10-11; dynamics pass remains — see 0006
 - [x] wasm feasibility note into ideas.md
 - [x] triage remaining open issues (below)
 - [x] specdev flaws → upstream issues specdev#15, specdev#16 (task 0007)
@@ -25,6 +25,7 @@ Upstream (oiwn/specdev) — file or extend at session end:
 - **filed, specdev#16** — skill docs omit `task scope rm`, so agents can't discover cleanup and leave stray scope entries.
 - **filed, specdev#17** — draft→ready advance cannot verify the human actually approved the draft; an agent can skip the review gate silently (happened twice here). Proposal: a human-run `specdev task approve <id>` command that `advance` requires out of draft; approval becomes visible in the log instead of trust-based.
 - **filed, specdev#18** — quality limits (150 lines / 1000 words / 6 scope per task) assume small one-commit tasks. A legitimate single working-manual task (0006: five phase specs, architecture, palette, decisions) compresses to 139 lines but still ~1500 words; splitting it contradicts the user's explicit one-task-per-feature decision. Limits need per-project config headroom or a distinct "design/umbrella task" kind.
+- **filed, specdev#19 (2026-10-11)** — agents create task files for trivial fixes (clippy one-liner, typo) because the skill routes "small one-commit work" into tasks and check's out-of-scope error pushes toward structure; proposal: never create tasks without explicit user instruction, `[task] explicit_only` config, out-of-scope as warning for small uncovered fixes. Local rule pending: AGENTS.md "no task creation unless instructed".
 
 Agent process (harness, not specdev):
 
@@ -50,4 +51,4 @@ Audit of merged PRs #90/#91: clean, no malicious code (details: overview.md Gotc
 
 ## Next
 
-0006 continues: refactor + `k` key landed 2026-10-11 (10-file terrain module, runtime layer flags, all gates green — user visual look on a known seed still owed, then dynamics pass: terrain changes too slowly). User's git queue: commit the uncommitted terrain + specs work (incl. `.tmuxp.yaml` which is holding the check error open). Session-end items still open: specdev retro conversation, ctx archive-or-keep.
+0006 continues: refactor + `k` key + rename to pocketworld landed 2026-10-11 (10-file module, runtime layer flags, all gates green — user visual look on a known seed still owed, then dynamics pass: terrain changes too slowly). User's git queue: commit the uncommitted pocketworld + specs work (incl. `.tmuxp.yaml` which is holding the check error open). Session-end items still open: specdev retro conversation, ctx archive-or-keep.

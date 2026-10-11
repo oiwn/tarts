@@ -20,8 +20,8 @@ mod life;
 mod maze;
 mod pipes;
 mod plasma;
+mod pocketworld;
 mod rain;
-mod terrain;
 
 use crate::config::Config;
 
@@ -39,7 +39,7 @@ const VALID_SAVERS: &[&str] = &[
     "fire",
     "constellation",
     "butterfly",
-    "terrain",
+    "pocketworld",
 ];
 
 #[derive(Debug)]
@@ -193,10 +193,11 @@ fn main() -> Result<(), error::TartsError> {
                     butterfly::Butterfly::new(options, (width, height));
                 common::run_loop(guard.get_stdout(), &mut butterfly, None)?
             }
-            "terrain" => {
-                let options = config.get_terrain_options();
-                let mut terrain = terrain::Terrain::new(options, (width, height));
-                common::run_loop(guard.get_stdout(), &mut terrain, None)?
+            "pocketworld" => {
+                let options = config.get_pocketworld_options();
+                let mut pocketworld =
+                    pocketworld::PocketWorld::new(options, (width, height));
+                common::run_loop(guard.get_stdout(), &mut pocketworld, None)?
             }
             _ => {
                 println!(
@@ -285,7 +286,7 @@ fn print_help() {
     println!("    pipes       Pipe maze animation");
     println!("    plasma      Plasma effect");
     println!("    fire        Fire simulation");
-    println!("    terrain     Terrain generation");
+    println!("    pocketworld Living pocket world: rivers, rain, plates, seasons");
     println!("    constellation  Drifting stars and dotted connections");
     println!("    butterfly   Butterflies floating around");
     println!("    blank       Blank screen");

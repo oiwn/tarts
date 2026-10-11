@@ -6,7 +6,7 @@
 //! Layer-owned grids live in their layer structs (`hydro`, `climate`,
 //! `erosion`, `tectonics`, `life`); see `sim.rs` for composition.
 
-use crate::terrain::noise::PerlinNoise;
+use crate::pocketworld::noise::PerlinNoise;
 
 /// Shared world state, one instance per `Sim`.
 pub(crate) struct World {

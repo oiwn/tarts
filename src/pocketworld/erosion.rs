@@ -2,8 +2,8 @@
 //! dry-slope talus. Solid mass is conserved — material only moves
 //! between `elevation` and this layer's `sediment` (test-verified).
 
-use crate::terrain::hydro::{Hydro, WET_MIN};
-use crate::terrain::world::World;
+use crate::pocketworld::hydro::{Hydro, WET_MIN};
+use crate::pocketworld::world::World;
 
 // Deliberately untuned — visual pass comes after the whole system runs;
 // adjust with the map on screen, not blind.

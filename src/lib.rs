@@ -43,5 +43,5 @@ pub mod life;
 pub mod maze;
 pub mod pipes;
 pub mod plasma;
+pub mod pocketworld;
 pub mod rain;
-pub mod terrain;

@@ -7,8 +7,8 @@ use tarts::boids::{Boids, BoidsOptionsBuilder};
 use tarts::common::TerminalEffect;
 use tarts::crab::{Crab, CrabOptionsBuilder};
 use tarts::life::{ConwayLife, ConwayLifeOptionsBuilder};
+use tarts::pocketworld::{PocketWorld, PocketWorldOptionsBuilder};
 use tarts::rain::digital_rain::{DigitalRain, DigitalRainOptionsBuilder};
-use tarts::terrain::{Terrain, TerrainOptionsBuilder};
 
 type EffectExercise = fn((u16, u16));
 
@@ -47,9 +47,9 @@ fn exercise_at_degenerate_size() -> Vec<(&'static str, EffectExercise)> {
                 effect.get_diff();
             }
         }),
-        ("terrain", |size| {
-            let options = TerrainOptionsBuilder::default().build().unwrap();
-            let mut effect = Terrain::new(options, size);
+        ("pocketworld", |size| {
+            let options = PocketWorldOptionsBuilder::default().build().unwrap();
+            let mut effect = PocketWorld::new(options, size);
             for _ in 0..3 {
                 effect.update();
                 effect.get_diff();

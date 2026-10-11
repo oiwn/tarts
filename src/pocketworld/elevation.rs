@@ -5,8 +5,8 @@
 //! and `reset()` only. The warp drift that animated the earliest sketch
 //! is frozen here; from Phase 2 on, the water itself is the motion.
 
-use crate::terrain::effect::TerrainOptions;
-use crate::terrain::world::World;
+use crate::pocketworld::effect::PocketWorldOptions;
+use crate::pocketworld::world::World;
 
 /// Target fraction of the map below sea level. Land-dominant (round 2):
 /// a lakes-and-rivers world with three times the terrain for rivers.
@@ -16,7 +16,7 @@ const SEA_FRACTION: f64 = 0.28;
 const MOUNTAIN_SCALE: f64 = 0.045;
 
 /// Elevation field + sea level + ocean fill + land stretch.
-pub(crate) fn generate(world: &mut World, options: &TerrainOptions) {
+pub(crate) fn generate(world: &mut World, options: &PocketWorldOptions) {
     let width = world.w;
     let height = world.h;
     let radius = width as f64 / std::f64::consts::TAU;
@@ -175,7 +175,7 @@ fn select_nth(v: &mut [f32], nth: usize) {
 
 #[cfg(test)]
 mod tests {
-    use crate::terrain::sim::test_sim;
+    use crate::pocketworld::sim::test_sim;
 
     #[test]
     fn heights_are_normalized() {
@@ -185,7 +185,7 @@ mod tests {
         }
         let max = t.world.elevation.iter().copied().fold(0.0f32, f32::max);
         let min = t.world.elevation.iter().copied().fold(1.0f32, f32::min);
-        assert!(max - min > 0.3, "terrain too flat: [{min}, {max}]");
+        assert!(max - min > 0.3, "world too flat: [{min}, {max}]");
     }
 
     #[test]

@@ -4,12 +4,12 @@
 //! elevation, glyph carries state; in the heightmap view brightness =
 //! height, strictly.
 
-use crate::terrain::climate::{Climate, TEMP_SNOW, temp_at, wind_at};
-use crate::terrain::hydro::{Hydro, OCEAN, RIVER_FLUX, WET_MIN};
-use crate::terrain::life::{ASH, BURNING};
-use crate::terrain::sim::Sim;
-use crate::terrain::tectonics::PLATE_CONV_T;
-use crate::terrain::world::World;
+use crate::pocketworld::climate::{Climate, TEMP_SNOW, temp_at, wind_at};
+use crate::pocketworld::hydro::{Hydro, OCEAN, RIVER_FLUX, WET_MIN};
+use crate::pocketworld::life::{ASH, BURNING};
+use crate::pocketworld::sim::Sim;
+use crate::pocketworld::tectonics::PLATE_CONV_T;
+use crate::pocketworld::world::World;
 use crossterm::style;
 
 /// Water depth above which water renders — thin rain sheets on land stay
@@ -485,7 +485,7 @@ pub(crate) fn rgb(r: u8, g: u8, b: u8) -> style::Color {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terrain::sim::test_sim;
+    use crate::pocketworld::sim::test_sim;
 
     #[test]
     fn late_world_glyph_census() {

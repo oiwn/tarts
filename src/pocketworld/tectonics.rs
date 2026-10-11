@@ -6,7 +6,7 @@
 //! divergent → rift subsidence, transform → earthquake jolts. Interiors
 //! are stable cratons — deformation only at edges.
 
-use crate::terrain::world::World;
+use crate::pocketworld::world::World;
 use rand::RngExt;
 use rand::rngs::StdRng;
 
@@ -161,7 +161,7 @@ impl Tectonics {
 
 #[cfg(test)]
 mod tests {
-    use crate::terrain::sim::test_sim;
+    use crate::pocketworld::sim::test_sim;
 
     #[test]
     fn plates_partition_and_stress_boundaries() {

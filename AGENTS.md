@@ -20,7 +20,7 @@ tarts donut       # 3D donut rotation
 tarts pipes       # Pipe maze animation
 tarts plasma      # Plasma effect
 tarts fire        # Fire simulation
-tarts terrain     # Terrain generation
+tarts pocketworld # Living pocket world: rivers, rain, plates, seasons
 
 # Development
 cargo test        # Run tests

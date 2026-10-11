@@ -1,11 +1,11 @@
-//! Terminal adapter for the terrain world: options, the `TerminalEffect`
+//! Terminal adapter for the pocketworld: options, the `TerminalEffect`
 //! wiring, and key handling. The simulation lives in `sim` (composed
 //! from the layer modules); drawing lives in `render`.
 
 use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
-use crate::terrain::render::{Renderer, rgb};
-use crate::terrain::sim::{Sim, SimLayer};
+use crate::pocketworld::render::{Renderer, rgb};
+use crate::pocketworld::sim::{Sim, SimLayer};
 use crossterm::style;
 use derive_builder::Builder;
 use rand::RngExt;
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
 #[builder(public, setter(into))]
-pub struct TerrainOptions {
+pub struct PocketWorldOptions {
     #[builder(default = "42")]
     pub seed: u32,
     /// Base frequency of the continent-scale field (lower = bigger landmasses).
@@ -42,17 +42,17 @@ pub struct TerrainOptions {
     pub disabled: Vec<SimLayer>,
 }
 
-pub struct Terrain {
+pub struct PocketWorld {
     pub screen_size: (u16, u16),
-    options: TerrainOptions,
+    options: PocketWorldOptions,
     buffer: Buffer,
     sim: Sim,
     renderer: Renderer,
     rng: rand::prelude::ThreadRng,
 }
 
-impl Terrain {
-    pub fn new(options: TerrainOptions, screen_size: (u16, u16)) -> Self {
+impl PocketWorld {
+    pub fn new(options: PocketWorldOptions, screen_size: (u16, u16)) -> Self {
         let width = screen_size.0.max(1);
         let height = screen_size.1.max(1);
         Self {
@@ -66,7 +66,7 @@ impl Terrain {
     }
 }
 
-impl TerminalEffect for Terrain {
+impl TerminalEffect for PocketWorld {
     fn handle_key(&mut self, key: crossterm::event::KeyEvent) {
         use crossterm::event::KeyCode;
         match key.code {
@@ -128,27 +128,30 @@ impl TerminalEffect for Terrain {
     }
 }
 
-impl DefaultOptions for Terrain {
-    type Options = TerrainOptions;
+impl DefaultOptions for PocketWorld {
+    type Options = PocketWorldOptions;
 
     fn default_options(_width: u16, _height: u16) -> Self::Options {
-        TerrainOptionsBuilder::default().build().unwrap()
+        PocketWorldOptionsBuilder::default().build().unwrap()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terrain::render::Layer;
+    use crate::pocketworld::render::Layer;
 
-    fn terrain(seed: u32, w: usize, h: usize) -> Terrain {
-        let options = TerrainOptionsBuilder::default().seed(seed).build().unwrap();
-        Terrain::new(options, (w as u16, h as u16))
+    fn pocketworld(seed: u32, w: usize, h: usize) -> PocketWorld {
+        let options = PocketWorldOptionsBuilder::default()
+            .seed(seed)
+            .build()
+            .unwrap();
+        PocketWorld::new(options, (w as u16, h as u16))
     }
 
     #[test]
     fn reset_re_rolls_the_world() {
-        let mut t = terrain(11, 60, 20);
+        let mut t = pocketworld(11, 60, 20);
         let before: Vec<f32> = t.sim.world.elevation.clone();
         t.reset();
         let differing = before
@@ -162,8 +165,8 @@ mod tests {
     #[test]
     fn survives_degenerate_sizes() {
         for (w, h) in [(0u16, 0u16), (0, 24), (80, 0), (1, 1)] {
-            let options = TerrainOptionsBuilder::default().build().unwrap();
-            let mut t = Terrain::new(options, (w, h));
+            let options = PocketWorldOptionsBuilder::default().build().unwrap();
+            let mut t = PocketWorld::new(options, (w, h));
             t.update();
             t.get_diff();
         }
@@ -173,7 +176,7 @@ mod tests {
     fn layer_cycling_on_l_and_k() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-        let mut t = terrain(31, 60, 20);
+        let mut t = pocketworld(31, 60, 20);
         let l = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE);
         let k = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
         assert_eq!(t.renderer.view, Layer::Biome);

@@ -2,7 +2,7 @@
 id: 0006-terrain-dynamic-world
 status: in-progress
 stage: implement
-scope: [src/terrain/effect.rs, src/terrain/noise.rs, src/main.rs, src/check.rs, tests/degenerate_size.rs, README.md, src/lib.rs, AGENTS.md, src/common.rs, src/terrain/world.rs, src/terrain/elevation.rs, src/terrain/hydro.rs, src/terrain/climate.rs, src/terrain/erosion.rs, src/terrain/tectonics.rs, src/terrain/life.rs, src/terrain/sim.rs, src/terrain/render.rs, src/terrain/mod.rs]
+scope: [src/main.rs, src/check.rs, tests/degenerate_size.rs, README.md, src/lib.rs, AGENTS.md, src/common.rs, src/pocketworld/mod.rs, src/pocketworld/noise.rs, src/pocketworld/effect.rs, src/pocketworld/world.rs, src/pocketworld/elevation.rs, src/pocketworld/hydro.rs, src/pocketworld/climate.rs, src/pocketworld/erosion.rs, src/pocketworld/tectonics.rs, src/pocketworld/life.rs, src/pocketworld/sim.rs, src/pocketworld/render.rs, src/config.rs]
 created: 2026-10-09
 source: https://github.com/oiwn/tarts/issues/93
 ---
@@ -10,7 +10,7 @@ source: https://github.com/oiwn/tarts/issues/93
 
 ## Plan
 
-The single working task for the terrain rebuild (user decision: no per-phase subtasks). Each phase lands as its own commit/PR.
+The single working task for the pocketworld rebuild (effect renamed terrain -> pocketworld 2026-10-11; the task title itself is pinned by specdev's log, which has no rename command; user decision: no per-phase subtasks). Each phase lands as its own commit/PR.
 
 - [x] Phases 1-5 + reshape rounds — **the basic visual sketch works**: a living world with layers (biome / height / hydro / temperature / wind / humidity on `l`), particle cloud fronts, rivers via mountain springs, snow-pack, seasons, vegetation + fire, tectonics, wind-blocking mountains, HUD. Four visual review rounds folded into this state; history in git.
 - [x] Round 5a — heightmap readability: brightness-monotonic hypsometric ramp ("bright = higher", 8 hard steps, bathymetry below sea), hillshade from the elevation gradient (NW light) multiplied in, density glyphs ` ·░▒▓`
@@ -124,7 +124,7 @@ User direction: "2d liquids, weather, rivers, geological changes — dynamic, so
 
 Decisions (user, 2026-10-10):
 
-- one task per feature: 0006 is the terrain working task; no per-phase subtasks
+- one task per feature: 0006 is the pocketworld working task; no per-phase subtasks
 - cylinder topology; banded winds; no-flux poles; temperature by latitude + lapse; hemisphere-antisymmetric seasons
 - ocean-fill initial state (~28% sea, land-dominant); emergent classification; ocean as boundary condition
 - clouds are 1-cell particle fronts; no field atmosphere, no ellipse stamps
@@ -164,3 +164,28 @@ Decisions (user, 2026-10-10):
 - 2026-10-11 scope add src/terrain/sim.rs — layer-file refactor: one file per simulation layer, runtime-composed (0006 next-session item 1)
 - 2026-10-11 scope add src/terrain/render.rs — layer-file refactor: one file per simulation layer, runtime-composed (0006 next-session item 1)
 - 2026-10-11 scope add src/terrain/mod.rs — layer-file refactor: declare the new terrain layer modules
+- 2026-10-11 scope add src/pocketworld/mod.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/noise.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/effect.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/world.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/elevation.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/hydro.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/climate.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/erosion.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/tectonics.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/life.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/sim.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope add src/pocketworld/render.rs — rename terrain -> pocketworld (user decision)
+- 2026-10-11 scope rm src/terrain/effect.rs
+- 2026-10-11 scope rm src/terrain/noise.rs
+- 2026-10-11 scope rm src/terrain/world.rs
+- 2026-10-11 scope rm src/terrain/elevation.rs
+- 2026-10-11 scope rm src/terrain/hydro.rs
+- 2026-10-11 scope rm src/terrain/climate.rs
+- 2026-10-11 scope rm src/terrain/erosion.rs
+- 2026-10-11 scope rm src/terrain/tectonics.rs
+- 2026-10-11 scope rm src/terrain/life.rs
+- 2026-10-11 scope rm src/terrain/sim.rs
+- 2026-10-11 scope rm src/terrain/render.rs
+- 2026-10-11 scope rm src/terrain/mod.rs
+- 2026-10-11 scope add src/config.rs — rename terrain -> pocketworld: config section + getters
