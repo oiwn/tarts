@@ -187,6 +187,12 @@ fn plates_view(sim: &Sim, x: usize, y: usize) -> (char, style::Color) {
     let world = &sim.world;
     let width = world.w;
     let i = y * width + x;
+    // Mantle plumes first: the active vents, feeding the island trails.
+    for h in &sim.tectonics.hotspots {
+        if h.x as usize == x && h.y as usize == y {
+            return ('◉', rgb(255, 120, 40));
+        }
+    }
     // Drift arrow at each plate's seed cell: where it's going.
     for p in &sim.tectonics.plates {
         if p.x as usize == x && p.y as usize == y {

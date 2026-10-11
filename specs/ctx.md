@@ -12,7 +12,7 @@ The session book. One task = one PR, merged one by one. No version bumps until a
 - [x] fix-degenerate-size-panic — DONE (0x0 panics + crab hang; 8 src files + tests)
 - [x] fix-life-reset — DONE (issue #80 resize panic fixed; src/life/effect.rs)
 - [x] readme-contributing-policy (0008) — DONE (new effects need an issue first)
-- [x] pocketworld (0006, renamed from terrain 2026-10-11) — rounds 1-5b done; layer-file refactor + `k` key done 2026-10-11; dynamics pass remains — see 0006
+- [x] pocketworld (0006, renamed from terrain 2026-10-11) — sketch + refactor + `k` done; tectonics round approved 2026-10-11 ("Wow, now we're talking! looks good"); task compressed; remaining rounds: erosion → climate → life → biome palette → integration — see 0006
 - [x] wasm feasibility note into ideas.md
 - [x] triage remaining open issues (below)
 - [x] specdev flaws → upstream issues specdev#15, specdev#16 (task 0007)
@@ -51,4 +51,4 @@ Audit of merged PRs #90/#91: clean, no malicious code (details: overview.md Gotc
 
 ## Next
 
-0006 continues: refactor + `k` key + rename to pocketworld landed 2026-10-11 (10-file module, runtime layer flags, all gates green — user visual look on a known seed still owed, then dynamics pass: terrain changes too slowly). User's git queue: commit the uncommitted pocketworld + specs work (incl. `.tmuxp.yaml` which is holding the check error open). Session-end items still open: specdev retro conversation, ctx archive-or-keep.
+0006 erosion round: set `disabled = ["climate", "life"]` in the focus config (hydro + erosion back on), tune the counterweight against the approved tectonics morphology; instruments Height + Hydro. Watch-item: the mild land-mean creep (see 0006 Findings). User's git queue: COMMIT — the worktree holds the layer refactor, the pocketworld rename, and the whole approved tectonics round (code + compressed specs) uncommitted. Session-end items still open: specdev retro conversation, ctx archive-or-keep.

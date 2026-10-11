@@ -165,12 +165,6 @@ mod tests {
     #[test]
     fn oceans_stay_filled_and_water_stays_sane() {
         let mut t = test_sim(9, 60, 20);
-        let fill: Vec<f32> = t
-            .world
-            .elevation
-            .iter()
-            .map(|h| (t.world.sea_level - h).max(0.0))
-            .collect();
         for _ in 0..600 {
             t.tick();
         }
@@ -178,9 +172,17 @@ mod tests {
             t.world.water.iter().all(|d| d.is_finite() && *d >= 0.0),
             "negative or non-finite water"
         );
-        // The ocean is a boundary condition: as a body it stays near its
-        // fill volume. Individual shallow straits may run through-flow
-        // currents and dip below their own fill level.
+        // The ocean is a boundary condition: as a body it tracks its
+        // fill depth against the CURRENT bathymetry — tectonics may
+        // legitimately raise the sea floor and shrink the ocean, so the
+        // t=0 fill snapshot is not the reference. Individual shallow
+        // straits may run through-flow currents below their own fill.
+        let fill: Vec<f32> = t
+            .world
+            .elevation
+            .iter()
+            .map(|h| (t.world.sea_level - h).max(0.0))
+            .collect();
         let mut fill_total = 0.0f32;
         let mut water_total = 0.0f32;
         for (d, f) in t.world.water.iter().zip(fill.iter()) {
@@ -242,10 +244,14 @@ mod tests {
     #[test]
     fn erosion_conserves_solid_mass() {
         // Hydraulic + talus erosion only move material between elevation
-        // and sediment. Plate tectonics (round 5b) is an external source/
-        // sink by design, so the drift bound covers tectonic contribution
-        // while still catching unbounded erosion leaks.
-        let mut t = test_sim(17, 60, 20);
+        // and sediment. Tectonics is an external source/sink by design —
+        // disabled here so the conservation bound is tight.
+        let options = PocketWorldOptionsBuilder::default()
+            .seed(17u32)
+            .disabled(vec![SimLayer::Tectonics])
+            .build()
+            .unwrap();
+        let mut t = Sim::new(&options, (60, 20));
         let before: f32 = t.world.elevation.iter().sum::<f32>()
             + t.erosion.sediment.iter().sum::<f32>();
         for _ in 0..300 {
@@ -254,8 +260,8 @@ mod tests {
         let after: f32 = t.world.elevation.iter().sum::<f32>()
             + t.erosion.sediment.iter().sum::<f32>();
         assert!(
-            (after - before).abs() < 15.0,
-            "solid mass drifted beyond tectonics: {before} -> {after}"
+            (after - before).abs() < 0.5,
+            "erosion leaked solid mass: {before} -> {after}"
         );
     }
 

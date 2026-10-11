@@ -10,81 +10,37 @@ source: https://github.com/oiwn/tarts/issues/93
 
 ## Plan
 
-The single working task for the pocketworld rebuild (effect renamed terrain -> pocketworld 2026-10-11; the task title itself is pinned by specdev's log, which has no rename command; user decision: no per-phase subtasks). Each phase lands as its own commit/PR.
+The single working task for the pocketworld rebuild (effect renamed terrain -> pocketworld 2026-10-11; the task title is pinned by specdev's log, which has no rename command; user decision: no per-phase subtasks). Each round lands as its own commit.
 
-- [x] Phases 1-5 + reshape rounds — **the basic visual sketch works**: a living world with layers (biome / height / hydro / temperature / wind / humidity on `l`), particle cloud fronts, rivers via mountain springs, snow-pack, seasons, vegetation + fire, tectonics, wind-blocking mountains, HUD. Four visual review rounds folded into this state; history in git.
-- [x] Round 5a — heightmap readability: brightness-monotonic hypsometric ramp ("bright = higher", 8 hard steps, bathymetry below sea), hillshade from the elevation gradient (NW light) multiplied in, density glyphs ` ·░▒▓`
-- [x] Round 5b — lithospheric plates: ~7 Voronoi plates (wrap-x) with slow drift velocities; membership refreshed lazily so boundaries migrate; boundary stress = relative plate velocity decomposed on the boundary normal — convergent uplift grows ranges ON plate edges (replaces random orogenies), divergent opens rift lakes, transform fires quakes; interiors stable (cratons). Plates layer is #1 after biome in the cycle: dim plate hues, boundaries typed red `≡` / cyan `¦` / yellow `≈`, drift arrows at seeds
+- [x] Phases 1-5b + reshape rounds — living world sketch: layered views on `l`/`k`, cloud fronts, rivers via springs, snow, seasons, vegetation + fire, plates. History in git.
+- [x] Layer-file refactor + `k` key (2026-10-11) — one file per sim layer, runtime-composed via `PocketWorldOptions::disabled`; behavior-preserving, tests green.
+- [x] Dynamics pass, tectonics half (2026-10-11) — focus mode (hydro/climate/erosion/life disabled via config), then: hot rates + round smoothstep kernel, warped-Voronoi margins, isostasy gated by a decaying activity memory, per-pair orogen segmentation (passive margins), fixed mantle plumes (`◉` on plates view) building island trails, crust advection (terrain rides the plates), volcanic lifecycle (islands age and resubmerge), crust-mass pin. **Approved: "Wow, now we're talking! looks good."**
+- [ ] Erosion round — re-enable hydro + erosion; tune the counterweight against the approved morphology: rivers carve the new ranges and islands without erasing them. Instruments: Height + Hydro views.
+- [ ] Climate round — clouds/rain/snow back on; orographic rain on the new ranges, seasons over advecting terrain.
+- [ ] Life round — vegetation and fire.
+- [ ] Biome palette round — the standing "looks like a shit" verdict on the biome view; owed once the world is fully alive again.
+- [ ] Integration + perf — full stack, focus config removed, ~60 FPS bar, acceptance gates.
 
-Quality process (user, 2026-10-10): improve step by step, one item per look, toward "a dynamic nice-looking pocket world".
-
-Next session (user, 2026-10-11):
-
-- [x] Refactor — one file per simulation layer (elevation, hydro, climate/clouds, erosion, tectonics, life, render), dynamically composed at runtime so layers can be enabled/disabled individually — also groundwork for perf work and the parked wasm idea (specs/ideas.md). Done 2026-10-11: `world.rs` holds the multi-writer commons; layers own their grids as structs (`on` flags); `sim.rs` is the composition root (canonical tick order, single RNG stream, `TerrainOptions::disabled`); `render.rs` holds all views; sim files are crossterm-free. Behavior-preserving: all 56 lib tests green (2 new: runtime disable/re-enable, all-views render), census unchanged, PTY smoke clean.
-- [x] `k` key — cycle to the previous layer (backward); `l` stays forward. Done with the refactor: `Layer::prev()`, HUD reads `[l/k]`, test cycles both directions.
-- [ ] Dynamics pass — user: "I don't see terrain changing that much as I was expecting": plate uplift vs erosion throughput needs a tuning/mechanism look; verify on the plates + height layers where change should be visible
+Quality process (user): step by step, one improvement per visual review, toward "a dynamic nice-looking pocket world".
 
 ## Architecture — state and tick
 
-The render `Buffer` is output, not state: rebuilt from fields each frame and diffed. State is split by ownership (2026-10-11 refactor): `world.rs` holds the multi-writer commons (elevation, water, sea level, clock, noise, thresholds); each layer file owns its private grids as a struct with an `on` flag; `sim.rs` composes them at runtime (`TerrainOptions::disabled` skips a layer's steps, freezing its state). Flat W×H grids (~4,800 cells at 120x40):
+The render `Buffer` is output, rebuilt from fields each frame. State is split by ownership: `world.rs` holds the multi-writer commons (elevation, water, sea level, clock, noise, thresholds); each layer file owns its grids as a struct with an `on` flag; `sim.rs` composes them (canonical tick order, single RNG stream; `disabled` skips a layer's steps, freezing its state).
 
-- `elevation` [0..1] — fBm + mountain mask at gen (land-stretched ×1.7); erosion and tectonics write later
-- `water` — rain/springs in, evaporation/infiltration out (infiltration only on standing water), pipe fluxes move it
-- `flux` — 4 pipe outfluxes per cell, persistent and damped; rivers have momentum because flux is state, not scratch
-- `sediment` — erosion picks it up, pipes carry it, slow/drying water drops it
-- `humidity` — decaying rainfall memory; biomes read it. Clouds move water, not fields
-- `snow` — cryosphere: accumulates where cold + wet, melts when warm
-- `clouds` — 1-cell particles spawned as fronts; the wind made visible
-- `vegetation`, `fire` — growth, lightning/spread/ash-regrowth
-- `springs` — mountain headwaters, constant river sources
-- `plate` (round 5b, replaces the orogeny event list) — plate membership per cell; seeds carry drift velocities
-- `class` flags — emergent ocean/lake labels, flood-filled lazily
+- `elevation` [0..1] — two-band fBm on a cylinder (seamless x-wrap), domain-warped; mountain mask added AFTER blending (blending compresses ridges below every threshold — the round-2 lesson); sea level = 28th-percentile fill; land stretched ×1.7; biome thresholds = land percentiles. Tectonics and erosion write later.
+- `water`, `flux` — pipe model (Mei et al. 2007): flux ∝ total-height difference, damped, sub-stepped, never drains a cell dry. The ocean is a boundary condition, not a conservation tank. Infiltration clears standing sheets only — channelized flow is sealed. Springs guarantee headwaters by construction. Classification emergent: ocean = connected to the sea fill, lake = isolated standing water, river = flux above threshold — motion, not a body.
+- `sediment` — carrying capacity ∝ flow; the gap erodes, the surplus deposits, drying cells drop their whole load. Talus sheds dry slopes past the angle of repose. Solid mass conserved.
+- `humidity`, `snow`, `clouds` — clouds are 1-cell particles spawned as fronts over warm ocean, riding the banded winds; each rains its own cell (×2 against mountain walls — windward pile-up, leeward rain shadow); cold cells take snow instead of rain. Wind and temperature are derived, never stored: latitude bands + swirl, gradient + lapse + hemisphere-antisymmetric seasons.
+- `vegetation`, `fire` — growth where humid and warm; lightning/dry-heat ignition, spread through fuel, ash fertilizes regrowth.
+- tectonics — ~7 warped-Voronoi plates (wrap-x) with slow drift; membership refreshes lazily so margins meander. Boundary stress = relative velocity decomposed on the boundary normal: convergent uplift / divergent rift / transform quakes, each plate pair's margin scaled by a slow orogen factor in [0.15, 1] — passive margins exist. Deformation stamps a round smoothstep disk; land takes it in full, seafloor ×0.15. A decaying activity memory gates the isostatic sag — only recently deformed crust pays, so ancient interiors keep their generated character; the land-mass books balance per tick. Fixed mantle plumes punch magma through the crust gate (island trails, `◉` on plates view); a volcanic load memory decays and the crust subsides and relaxes toward sea, so only the young ends of trails stay emergent. Every refresh cadence the crust advects with its plate (semi-Lagrangian, bilinear) — continents travel and keep their outlines, ranges ride along after their front moves on; total crust mass is pinned to its world-gen value (the gather duplicates crust at divergent boundaries otherwise).
 
-Derived, never stored: wind = f(row, elevation, t) — latitude bands + swirl, slowed by mountain walls; temperature = f(y, elevation, t) — gradient + lapse + hemisphere-antisymmetric seasonal sine.
+Tick order: drain → climate reset → clouds → springs → snowmelt → life → tectonics → pipes ×2 → sediment/erosion/talus → lazy classification. Seeded stochastic rolls (fronts, lightning, quakes) — replays are bit-exact.
 
-Tick order: ocean relax + land evaporation → cloud fronts (spawn, drift, rain, snowfall) → springs → snow melt → vegetation/fire → tectonics → pipes ×2 → sediment transport → erosion → talus → lazy classification. Pure arithmetic plus seeded stochastic rolls (spawns, lightning, quakes) — replays are bit-exact.
+Rendering is a pure function of the fields (`render.rs`, crossterm only there and in `effect.rs`): the `l`/`k` keys cycle the layer views; the HUD names the active layer on row 0.
 
-Rendering is a pure function of the fields (`render.rs`, crossterm only there and in `effect.rs`): the `l`/`k` keys cycle the layer views forward/backward through a `TerminalEffect::handle_key` hook (default no-op for other effects); HUD line names the active layer on row 0.
+## Palette
 
-## Phase 1 — base map
-
-Two-band fBm (continent `scale` + detail `detail_scale`, contrast-gained) on a cylinder via 3D Perlin — seamless x-wrap, test-verified. Domain warp bends ridgelines. Mountain mask added AFTER blending (blending compresses ridges below every threshold — the round-2 lesson): ridged chains where a mountain-field says so, tall enough to clear the rock/snow bands. Land heights stretched ×1.7 after sea selection. Sea level = height percentile (28% — land-dominant world). Biome thresholds = percentiles of the land distribution, so bands exist on every seed. `PerlinNoise` is seed-shuffled per instance (the original ignored its seed).
-
-## Phase 2 — water
-
-Pipe model (Mei et al. 2007): flux ∝ total-height difference, outflow clamped so a cell never drains dry, damped, sub-stepped. Rivers find valleys, depressions fill into lakes, floods overtop ridges. **The ocean is a boundary condition, not a conservation tank** — it relaxes toward fill depth; rain never chases the water budget. Infiltration clears standing sheets only — channelized flow is sealed (leaking it drained rivers 27× faster than springs could feed). Mountain springs guarantee headwaters by construction. Classification is emergent: ocean = connected to the sea fill; lake = isolated standing water; river = flux above threshold — motion, not a body.
-
-## Phase 3 — erosion
-
-Hydraulic: carrying capacity ∝ flow; the capacity gap erodes elevation into sediment, the surplus deposits; drying cells drop their whole load (floodplains, deltas). Sediment rides the outflow share-weighted. Talus: dry slopes past the angle of repose shed into scree. Solid mass conserved, test-verified.
-
-## Phase 4 — weather: clouds
-
-Clouds are 1-cell particles spawned as **fronts** (clusters of ~11) over warm ocean, riding the banded winds with turbulence — trains and pile-ups emerge from the shared flow; the sky is the wind made visible. Each particle rains its own cell gently (0.06/tick, ×2 against mountain walls), so fronts cross land raining instead of dying at the coast; cold cells take **snow** instead of rain (accumulates, melts in warm spells — poles and winters hold water, spring releases it). Dithered parity transparency (`▒`/`▓` on the checkerboard, terrain shining through) makes fronts shimmer. Rainfall writes the decaying humidity memory that biomes read. Mountains block wind: the field reads elevation; windward pile-up and rain-out, leeward rain-shadow deserts. Temperature: latitude gradient + lapse + seasons — derived, never stored.
-
-## Phase 5 — tectonics, life
-
-**Round 5b: lithospheric plates replace the random orogeny bumps.** ~7 plates seeded at world gen (Voronoi membership, wrap-x, seeded drift ~0.01 cells/tick). Membership refreshes lazily so boundaries migrate over minutes. At each boundary cell, the plates' relative velocity decomposes on the boundary normal: convergent → slow uplift along the edge (mountain chains grow exactly on plate fronts); divergent → subsidence (rift valleys that flood into lakes); transform → earthquake jolts. Interiors are stable cratons — deformation only at edges. Erosion stays the counterweight: ranges rise on convergent fronts, wear down as boundaries migrate away.
-
-**Life**: vegetation grows where humid and warm; fire ignites from lightning under rain or prolonged hot dry spells, spreads through fueled neighbors, consumes to ash, ash fertilizes regrowth — self-balancing. Flooding is free through the pipes.
-
-Stochastic events (front spawns, lightning, quakes) roll from the single seeded RNG stream: same seed replays the same history; `reset()` re-rolls a new world.
-
-## Parameters
-
-No simulation controls; the screensaver is autonomous. `TerrainOptions` (derive_builder + serde, config-overridable): `seed`, `scale`, `detail_scale`, `octaves`, `detail_octaves`, `persistence`, `warp_strength`, `warp_scale`. Layer cycling is a display control, not a simulation knob. Per-seed jitter for run-to-run variety.
-
-## Terrain palette
-
-Narrow (width-1) Unicode only — double-width glyphs break the 1-char-per-cell grid. Division of labor: **color carries elevation, glyph carries state**; in the heightmap layer **brightness = height, strictly**.
-
-Layers (cycled with `l`): biome (default) / heightmap / hydro (depth + flux vectors) / temperature / wind / humidity — the tuning instruments.
-
-**Heightmap layer spec (round 5a)**: brightness-monotonic hypsometric ramp, 8 hard steps; below sea in bathymetry blues (dark deep → lighter shelf), land dark-green → green → yellow-brown → grey → near-white peaks. Hillshade (fake NW sun from the elevation gradient) multiplies in — ridges catch light, valleys shadow. Density glyphs ` ·░▒▓` for monochrome terminals.
-
-- water — deep `≈` dark blue → shallow `~` lighter; lake `~` teal; river `˃ ˄ ˂ ˅` by flux, cyan
-- cloud — `▒`/`▓` by water, dithered over terrain; snow-pack `*`/`❄`
-- shore `.`; grass `"`; forest `♣`; swamp `Ψ`; desert `∴`; rock `▲`; scree `°`; ash `░`; fire `✱ ❋ ✹` animated; rain `|`/`⁄`
+Narrow (width-1) Unicode only — double-width glyphs break the grid. Color carries elevation, glyph carries state; in the heightmap view brightness = height, strictly (8 hard steps, bathymetry below sea, NW hillshade, density glyphs ` ·░▒▓`). Water: deep `≈` → shallow `~`, lake `~` teal, rivers `˃ ˄ ˂ ˅` by flux. Cloud `▒`/`▓` dithered over terrain; snow-pack `*`/`❄`. Shore `.`, grass `"`, forest `♣`, swamp `Ψ`, desert `∴`, rock `▲`, scree `°`, ash `░`, fire `✱ ❋ ✹` animated, rain `|`/`⁄`.
 
 ## References
 
@@ -102,39 +58,25 @@ Global bar, applied per phase as it lands:
 - [ ] PTY smoke + degenerate-size safe (see 0004)
 - [ ] `cargo fmt --check`, `cargo test`, `cargo clippy --all-targets -- -D warnings`
 
-Current state green (2026-10-10): 53 lib tests + 2 integration, clippy clean, release build, PTY quit, replay bit-exact, census with 1000+ river cells.
+Current state green (2026-10-11): 58 lib tests + 2 integration, clippy clean, release build, PTY quit, replay exact; tectonics equilibrium probed — land bounded, relief up, ~500 island cells cycling.
 
 ## Findings
 
 Durable lessons (per-round history lives in git):
 
-- **Session 2026-10-10/11 close (user)**: heightmap layer approved ("looks awesome, really sick"); plates layer + mechanics in; plates sped to 4× on request; overall verdict on the biome view remains "looks like a shit" — its palette/structure round is still owed. Standing complaint recorded: terrain changes less than expected (see Next session, dynamics pass).
-- **The ocean is a boundary condition, not a conservation tank** — two failed rain-budget controllers proved it; the sea relaxes toward fill.
-- **Infiltration must not leak channelized flow** — standing sheets soak, rushing rivers are sealed. Leaking them made rivers arithmetically impossible (27× spring inflow). This was the river breakthrough.
-- **Concentrated per-cell rain** (1-cloud-1-cell, fronts) is what lets channels accumulate; disc-spread rain never could.
-- **Blended mountain noise compresses below every threshold** — masks are added after blending, never averaged in.
-- **Verify renders by glyph census**, never by escape-stripping diff streams — flicker over-represents and lies.
-- **f32 identity failures**: `evap + (w − evap)` can exceed `w` by one ulp; every water removal clamps. Caught twice.
-- Brightness-monotonic ramps only: pastel palettes with similar luminance read as mush (round-5 review).
-- Ocean invariant is aggregate: the body keeps >85% of fill; individual straits legitimately run through-flow currents.
+- **Terrain must ride the plates (advection) or the heightmap traces the plate network** — everything built along static boundaries reads as polygonal scars. The user's Earth intuition ("continents do not change that much, they're moving around with plates") was the round's unlock.
+- **Semi-Lagrangian advection duplicates crust at divergent boundaries** — without pinning total crust mass to its world-gen value, land ran away to 99% of the map within minutes.
+- **Free mass needs a free sink**: plume magma is unbooked until it surfaces; volcanic subsidence must be unbooked too — booking only one side grows land at the ocean's expense.
+- **Fix causes, not aggregates**: a land-relief thermostat (rescaling all relief to pin land mass) converted coastline churn into height loss and drowned the world in low land; reverted. Per-cell island relax-toward-sea fixed the actual cause.
+- **Focus mode is the tuning workflow**: `disabled` layers via config, one variable at a time, full stack only at round ends.
+- The ocean is a boundary condition, not a conservation tank (two failed rain-budget controllers proved it); infiltration must not leak channelized flow (27× spring inflow); concentrated per-cell rain is what forms channels; masks are added after blending, never averaged in; verify renders by glyph census, never escape-stripping diffs; f32 water removals need clamps (one-ulp overflows); brightness-monotonic ramps only; the ocean invariant is aggregate.
+- Session 2026-10-10/11: heightmap approved ("looks awesome"); biome view still owes its palette round ("looks like a shit"). Session 2026-10-11 close: tectonics round approved ("Wow, now we're talking! looks good"). Watch-item: land mean creeps ~+0.06 per 2400 ticks (decelerating) — re-examine in the erosion round.
 
 ## Context
 
 User direction: "2d liquids, weather, rivers, geological changes — dynamic, something interesting." Vision + DF comparison: issue #93.
 
-Decisions (user, 2026-10-10):
-
-- one task per feature: 0006 is the pocketworld working task; no per-phase subtasks
-- cylinder topology; banded winds; no-flux poles; temperature by latitude + lapse; hemisphere-antisymmetric seasons
-- ocean-fill initial state (~28% sea, land-dominant); emergent classification; ocean as boundary condition
-- clouds are 1-cell particle fronts; no field atmosphere, no ellipse stamps
-- mountains block wind; ranges are post-blend masks; tectonics (plates, round 5b) is the counterweight to erosion
-- cryosphere: snow accumulates and melts into the hydrosphere
-- color = elevation, glyph = state; brightness = height in the heightmap layer; layer cycling is a display control, no simulation controls
-- stochastic events from the single seeded RNG stream; `reset()` re-rolls
-- narrow-width Unicode glyphs only
-- no accelerated-history boot — world runs at watchable speed from t=0
-- quality process: step by step, one improvement per visual review
+Decisions (user): one task per feature; cylinder topology, banded winds, no-flux poles, latitude+lapse temperature, hemisphere-antisymmetric seasons; ocean-fill initial state, emergent classification; clouds are 1-cell fronts, no field atmosphere; mountains block wind; cryosphere melts into the hydrosphere; color = elevation, glyph = state, heightmap brightness = height; layer cycling is a display control, no simulation controls; single seeded RNG stream, `reset()` re-rolls; narrow glyphs only; no accelerated-history boot; step-by-step visual reviews. 2026-10-11: effect renamed pocketworld; `disabled` is config-only groundwork (wasm/perf), not a user control; focus mode for tuning; tectonics 2× slower — motion carried by advection.
 
 ## Summary
 
