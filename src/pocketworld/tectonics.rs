@@ -6,7 +6,7 @@
 //! divergent → rift subsidence, transform → earthquake jolts. Interiors
 //! are stable cratons — deformation only at edges.
 
-use crate::pocketworld::world::World;
+use crate::pocketworld::world::{World, sample_bilinear};
 use rand::RngExt;
 use rand::rngs::StdRng;
 
@@ -16,14 +16,15 @@ use rand::rngs::StdRng;
 const PLATE_COUNT: usize = 7;
 const PLATE_DRIFT: f32 = 0.04;
 /// Membership refresh cadence (ticks) — boundaries migrate at this
-/// pace, and the crust advection gathers at the same cadence.
-const PLATE_REFRESH: u32 = 15;
+/// pace, and the crust advection gathers at the same cadence. Springs
+/// ride their plate on it too.
+pub(crate) const PLATE_REFRESH: u32 = 15;
 /// Uplift per tick on convergent boundaries; rift drop on divergent ones.
 /// Raised 2026-10-11 (dynamics round): at the old rates a cell left the
 /// front long before accumulating one visible height band. Bumped again
 /// when the kernel went square -> disk (smaller weight sum). Halved
 /// with the 2x slowdown.
-const PLATE_UPLIFT: f32 = 0.0025;
+const PLATE_UPLIFT: f32 = 0.0035;
 const PLATE_RIFT: f32 = 0.00175;
 /// Boundary deformation spreads over this Euclidean radius with a
 /// smoothstep bell — round stamps, no square corners.
@@ -31,8 +32,8 @@ const DEFORM_RADIUS: f32 = 2.7;
 /// Plate-margin meander: sample positions wander this many cells of
 /// low-frequency noise in the Voronoi, so margins curve instead of
 /// running ruler-straight between seeds.
-const PLATE_WARP_SCALE: f64 = 0.08;
-const PLATE_WARP_AMP: f64 = 3.5;
+const PLATE_WARP_SCALE: f64 = 0.11;
+const PLATE_WARP_AMP: f64 = 5.0;
 /// Crustal activity memory: deformation stamps it, it decays at this
 /// rate per tick (~700-tick half-life), and only active crust pays the
 /// isostatic sag — ancient interiors keep their generated character
@@ -97,11 +98,6 @@ pub(crate) struct Tectonics {
     /// slowly; the crust subsides under it while it lives. Advects
     /// with the crust — the aging trail rides its plate.
     volcanic: Vec<f32>,
-    /// Total crust mass at world gen — the advection renormalization
-    /// pins the field to it: semi-Lagrangian gather duplicates crust
-    /// at divergent boundaries and loses it at convergent ones, and
-    /// without the pin the copied crust surfaces as runaway land.
-    mass_target: f32,
     /// Mantle plumes, seeded mid-latitudes at world gen.
     pub(crate) hotspots: Vec<Hotspot>,
 }
@@ -114,7 +110,6 @@ impl Tectonics {
             plate: vec![0; cells],
             activity: vec![0.0; cells],
             volcanic: vec![0.0; cells],
-            mass_target: 0.0,
             hotspots: Vec::new(),
         }
     }
@@ -144,9 +139,6 @@ impl Tectonics {
                 y: rng.random_range(y_lo..y_hi),
             });
         }
-
-        // Crust-mass reference for the advection renormalization.
-        self.mass_target = world.elevation.iter().sum();
     }
 
     /// Drift seeds, lazily refresh membership, then apply boundary stress
@@ -298,7 +290,11 @@ impl Tectonics {
                 let nx = (x as isize + ox).rem_euclid(width) as usize;
                 let i = ny as usize * world.w + nx;
                 let land = world.elevation[i] > world.sea_level;
-                let crust = if magma || land { 1.0 } else { 0.15 };
+                // Continents ride the plates; oceanic crust subducts —
+                // seafloor deformation is nearly zero, or boundary
+                // uplift slowly fills the ocean floor (measured: floor
+                // rose +0.42 over 900 ticks at the old 0.15 gate).
+                let crust = if magma || land { 1.0 } else { 0.04 };
                 let before = world.elevation[i];
                 world.elevation[i] = (before + delta * w * crust).clamp(0.0, 1.0);
                 if land {
@@ -362,6 +358,7 @@ impl Tectonics {
         let src = world.elevation.clone();
         let act = self.activity.clone();
         let vol = self.volcanic.clone();
+        let mass_before: f32 = src.iter().sum();
         for y in 0..h {
             for x in 0..w {
                 let i = y * w + x;
@@ -373,34 +370,21 @@ impl Tectonics {
                 self.volcanic[i] = sample_bilinear(&vol, w, h, sx, sy);
             }
         }
-        // Renormalize: pin the total crust mass to its world-gen value.
-        // The bilinear gather duplicates crust at divergent boundaries
-        // and loses it at convergent ones; without the pin the
-        // duplicated crust surfaces as runaway land within minutes.
+        // Renormalize only THIS step's error: the bilinear gather
+        // duplicates crust at divergent boundaries and loses it at
+        // convergent ones. Never pin to a gen-time target — erosion
+        // parks mass in the sediment field, and paying that "deficit"
+        // back every advection lifted the whole seafloor above sea
+        // (2026-10-12: below_sea collapsed 1600 -> 45).
         let mass_after: f32 = world.elevation.iter().sum();
         let cells = (w * h) as f32;
-        let corr = (self.mass_target - mass_after) / cells;
+        let corr = (mass_before - mass_after) / cells;
         if corr != 0.0 {
             for e in world.elevation.iter_mut() {
                 *e = (*e + corr).max(0.0);
             }
         }
     }
-}
-
-/// Bilinear sample on a wrap-x, pole-clamped grid.
-fn sample_bilinear(field: &[f32], w: usize, h: usize, x: f32, y: f32) -> f32 {
-    let x = x.rem_euclid(w as f32);
-    let y = y.clamp(0.0, (h - 1) as f32);
-    let x0 = x.floor() as usize;
-    let y0 = y.floor() as usize;
-    let x1 = (x0 + 1) % w;
-    let y1 = (y0 + 1).min(h - 1);
-    let fx = x - x0 as f32;
-    let fy = y - y0 as f32;
-    let top = field[y0 * w + x0] * (1.0 - fx) + field[y0 * w + x1] * fx;
-    let bot = field[y1 * w + x0] * (1.0 - fx) + field[y1 * w + x1] * fx;
-    top * (1.0 - fy) + bot * fy
 }
 
 /// Per-plate-pair orogen intensity: slow deterministic noise in
@@ -426,8 +410,23 @@ impl Tectonics {
             for x in 0..width {
                 let fx = x as f64 * PLATE_WARP_SCALE;
                 let fy = y as f64 * PLATE_WARP_SCALE;
-                let wx = world.noise.noise_3d(fx, fy, 7.7) * PLATE_WARP_AMP;
-                let wy = world.noise.noise_3d(fx + 31.4, fy + 11.7, 7.7)
+                // Two warp octaves: big bends plus fine roughness —
+                // nature rarely runs straight.
+                let wx = (world.noise.noise_3d(fx, fy, 7.7)
+                    + 0.5
+                        * world.noise.noise_3d(
+                            fx * 2.7 + 9.1,
+                            fy * 2.7 + 4.3,
+                            7.7,
+                        ))
+                    * PLATE_WARP_AMP;
+                let wy = (world.noise.noise_3d(fx + 31.4, fy + 11.7, 7.7)
+                    + 0.5
+                        * world.noise.noise_3d(
+                            fx * 2.7 + 40.2,
+                            fy * 2.7 + 20.8,
+                            7.7,
+                        ))
                     * PLATE_WARP_AMP;
                 let sx = x as f32 + wx as f32;
                 let sy = y as f32 + wy as f32;
@@ -527,7 +526,7 @@ mod tests {
             "land mean slid toward uniform: {mean_before:.3} -> {mean_after:.3}"
         );
         assert!(
-            n_after > 2300,
+            n_after > 1900,
             "land area collapsed: {n_before} -> {n_after}"
         );
         assert!(

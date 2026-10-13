@@ -1,10 +1,10 @@
 ---
 id: 0006-terrain-dynamic-world
-status: in-progress
-stage: implement
+status: blocked
 scope: [src/main.rs, src/check.rs, tests/degenerate_size.rs, README.md, src/lib.rs, AGENTS.md, src/common.rs, src/pocketworld/mod.rs, src/pocketworld/noise.rs, src/pocketworld/effect.rs, src/pocketworld/world.rs, src/pocketworld/elevation.rs, src/pocketworld/hydro.rs, src/pocketworld/climate.rs, src/pocketworld/erosion.rs, src/pocketworld/tectonics.rs, src/pocketworld/life.rs, src/pocketworld/sim.rs, src/pocketworld/render.rs, src/config.rs]
 created: 2026-10-09
 source: https://github.com/oiwn/tarts/issues/93
+blocked_reason: visual-tuning rounds blocked on the analysis facility (user, 2026-10-13): agent cannot see renders; probe-number tuning missed the land plateau until measured. Analyzer (0010) lands first; then the stretch-saturation fix and remaining rounds resume.
 ---
 # Task: terrain dynamic world
 
@@ -15,10 +15,13 @@ The single working task for the pocketworld rebuild (effect renamed terrain -> p
 - [x] Phases 1-5b + reshape rounds — living world sketch: layered views on `l`/`k`, cloud fronts, rivers via springs, snow, seasons, vegetation + fire, plates. History in git.
 - [x] Layer-file refactor + `k` key (2026-10-11) — one file per sim layer, runtime-composed via `PocketWorldOptions::disabled`; behavior-preserving, tests green.
 - [x] Dynamics pass, tectonics half (2026-10-11) — focus mode (hydro/climate/erosion/life disabled via config), then: hot rates + round smoothstep kernel, warped-Voronoi margins, isostasy gated by a decaying activity memory, per-pair orogen segmentation (passive margins), fixed mantle plumes (`◉` on plates view) building island trails, crust advection (terrain rides the plates), volcanic lifecycle (islands age and resubmerge), crust-mass pin. **Approved: "Wow, now we're talking! looks good."**
-- [ ] Erosion round — re-enable hydro + erosion; tune the counterweight against the approved morphology: rivers carve the new ranges and islands without erasing them. Instruments: Height + Hydro views.
-- [ ] Climate round — clouds/rain/snow back on; orographic rain on the new ranges, seasons over advecting terrain.
-- [ ] Life round — vegetation and fire.
-- [ ] Biome palette round — the standing "looks like a shit" verdict on the biome view; owed once the world is fully alive again.
+- [x] Water-representation polish (2026-10-12) — ocean/lake decided by geometry (below sea = sea), water depth EMA, channel-gated flow arrows. Strobe eliminated (0 ocean-depth flips per refresh window).
+- [x] Climate/wind round (2026-10-12) — **wind is now a simulated momentum field**: self-advection, thermal band forcing, Coriolis (∝ sin lat), orographic/land drag, turbulence. General circulation emerges (locked by test). Approved: "wind now looks more realistic."
+- [x] Sky & ice + brightness/variety rounds B/C/C2 (2026-10-12) — cohesive cloud coverage (soft stamps + EMA), color-milk translucency (checkerboard dither dead), cloud vocabulary; cryosphere bands with temp hue; brightness pass; per-object glyph/color variety via stable position hash. Approved: "WOW, this is AWESOME."
+- [x] Keys + legend (2026-10-12) — `j` prev / `k` next / `l` toggles a full legend screen (own page, not an overlay).
+- [~] Relief round (2026-10-12/13) — partial, **see block**: sea-from-base (percentile of the masked field rose with the mountains and ate relief), mountain mask strengthened, erosion slowed. Follow-on bugs found and fixed: sediment-deficit mass-pin payout (seafloor +0.42), erosion conveyor filling the ocean (deep sea = burial sink), **eustasy** (sea relaxes to target fraction of live crust). Remaining flaw: **stretch saturation plateau** — land mean 0.93, std 0.11: the ×2.4 stretch pins land near the headroom cap; heightmap shows 1–2 bands. Fix is designed; verification blocked on the analyzer (0010).
+- [ ] Life round — vegetation + fire on the finished palette (forests are still humidity-shadows; the round makes them organisms).
+- [ ] Biome palette verification + remaining flaws (thin rivers 1.9%, static temp, green deserts — desert/swamp paint with the green elevation ramp — rare forests).
 - [ ] Integration + perf — full stack, focus config removed, ~60 FPS bar, acceptance gates.
 
 Quality process (user): step by step, one improvement per visual review, toward "a dynamic nice-looking pocket world".
@@ -58,19 +61,21 @@ Global bar, applied per phase as it lands:
 - [ ] PTY smoke + degenerate-size safe (see 0004)
 - [ ] `cargo fmt --check`, `cargo test`, `cargo clippy --all-targets -- -D warnings`
 
-Current state green (2026-10-11): 58 lib tests + 2 integration, clippy clean, release build, PTY quit, replay exact; tectonics equilibrium probed — land bounded, relief up, ~500 island cells cycling.
+Current state green (2026-10-13): 61 lib tests + 2 integration, clippy clean, release build, PTY quit, replay exact. Status: **blocked** on 0010 (analyzer) — the stretch-saturation plateau fix and remaining visual rounds resume with measured data.
 
 ## Findings
 
 Durable lessons (per-round history lives in git):
 
-- **Terrain must ride the plates (advection) or the heightmap traces the plate network** — everything built along static boundaries reads as polygonal scars. The user's Earth intuition ("continents do not change that much, they're moving around with plates") was the round's unlock.
-- **Semi-Lagrangian advection duplicates crust at divergent boundaries** — without pinning total crust mass to its world-gen value, land ran away to 99% of the map within minutes.
-- **Free mass needs a free sink**: plume magma is unbooked until it surfaces; volcanic subsidence must be unbooked too — booking only one side grows land at the ocean's expense.
-- **Fix causes, not aggregates**: a land-relief thermostat (rescaling all relief to pin land mass) converted coastline churn into height loss and drowned the world in low land; reverted. Per-cell island relax-toward-sea fixed the actual cause.
-- **Focus mode is the tuning workflow**: `disabled` layers via config, one variable at a time, full stack only at round ends.
-- The ocean is a boundary condition, not a conservation tank (two failed rain-budget controllers proved it); infiltration must not leak channelized flow (27× spring inflow); concentrated per-cell rain is what forms channels; masks are added after blending, never averaged in; verify renders by glyph census, never escape-stripping diffs; f32 water removals need clamps (one-ulp overflows); brightness-monotonic ramps only; the ocean invariant is aggregate.
-- Session 2026-10-10/11: heightmap approved ("looks awesome"); biome view still owes its palette round ("looks like a shit"). Session 2026-10-11 close: tectonics round approved ("Wow, now we're talking! looks good"). Watch-item: land mean creeps ~+0.06 per 2400 ticks (decelerating) — re-examine in the erosion round.
+- **Analyzer before tuning** (user, 2026-10-13): probe-number tuning missed the land plateau until a human looked — the agent cannot see renders; the analysis facility (0010) is the feedback loop.
+- **Sea level must come from the base field, before mountains** — a percentile of the masked field rises with the mountains and eats the relief; then the headroom cap flattens the rest into a plateau.
+- **Mass pins must be step-local, never against a gen-time total** — erosion parks mass in the sediment field; paying that "deficit" every advection lifted the whole seafloor (+0.42; ocean collapsed to 45 cells).
+- **Free mass needs a free sink, and the sea is the rock cycle's sink** — the uplift→erosion→coastal-deposition conveyor filled the ocean until below-sea sediment became burial (returned to the mantle).
+- **Eustasy** — sea relaxing toward its target fraction of the live crust is the ocean's homeostat against whatever the crust does.
+- **Terrain must ride the plates** (advection) or the heightmap traces the plate network; semi-Lagrangian self-advection of wind gives meanders/eddies cheaply; polar precipitation can't wait for the cloud fleet (probed: zero clouds past |lat| 0.5) — the polar cell delivers its own snowfall; sublimation bounds the caps; naive hashes show lattice patterns (use a mixing hash).
+- Focus mode (`disabled` via config) is the tuning workflow; the ocean is a boundary condition; infiltration must not leak channelized flow; concentrated per-cell rain forms channels; masks add after blending; verify by glyph census; f32 removals clamp; brightness-monotonic ramps only.
+- Known render debts: desert/swamp painted with the green elevation ramp; rivers thin; temp reads static.
+- **Measured baseline (2026-10-13, analyzer seed 42, 100×40, default options — focus config NOT applied):** height@3000: land renders only `·` 30% + `░` 23%, zero `▒`/`▓`/`█` cells; worse, `▒` is 9% at frame 300 and decays to 0 by 3000 — erosion eats the mid band live. temp@900: 95.8% of cells in ONE ramp band — the ramp/normalization shows no spatial structure. biome@1500 (life on): grass family 37.7% of canvas, forests (`♠`+`♣`) 4.8% ≈ 12% of land, rock 1.8%. hydro@900: flow arrows ~3.1%. Churn paradox: 60–95% of cells change per sample yet the screen reads static — in-place glyph jitter with no feature motion. Fix order: height distribution (gen-time stretch + run-time band loss) → temp ramp → desert color → life round.
 
 ## Context
 
@@ -131,3 +136,4 @@ Decisions (user): one task per feature; cylinder topology, banded winds, no-flux
 - 2026-10-11 scope rm src/terrain/render.rs
 - 2026-10-11 scope rm src/terrain/mod.rs
 - 2026-10-11 scope add src/config.rs — rename terrain -> pocketworld: config section + getters
+- 2026-10-13 blocked: visual-tuning rounds blocked on the analysis facility (user, 2026-10-13): agent cannot see renders; probe-number tuning missed the land plateau until measured. Analyzer (0010) lands first; then the stretch-saturation fix and remaining rounds resume.

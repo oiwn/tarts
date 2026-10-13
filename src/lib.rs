@@ -4,6 +4,7 @@
 //!
 //! | Module   | Description                              |
 //! |----------|------------------------------------------|
+//! | `analyze` | Headless render analysis (`--analyze`)         |
 //! | `blank`  | Blank screen — no-op placeholder         |
 //! | `boids`  | Boids flocking simulation                |
 //! | `buffer` | Terminal cell buffer for colored output  |
@@ -23,8 +24,9 @@
 //! | `pipes`  | Pipe maze animation                      |
 //! | `plasma` | Plasma color wave effect                 |
 //! | `rain`   | Matrix-style digital rain                |
-//! | `terrain`| Terrain generation — scrolling landscape |
+//! | `pocketworld` | Living pocket world: rivers, rain, plates |
 
+pub mod analyze;
 pub mod blank;
 pub mod boids;
 pub mod buffer;

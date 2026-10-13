@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-10-13 — effect analyzer
+
+- `--analyze`: headless one-effect/one-view render report (glyph census + change rate) for every effect; pocketworld's 7 views exposed via new `views()`/`set_view()` trait defaults. Fix rounds added `--dump` (whole final frame as glyphs) and `--size WxH` (canvas override, default 100x40), both from user remarks.
+- Task `0010-effect-analyzer`; source: user decision 2026-10-13: numeric-probe tuning missed render flaws (the plateau was found only by measurement); build the analysis instrument first
+
 ## 2026-10-10 — fix life reset
 
 - Implemented life's todo!() reset() (issue #80): resize no longer panics the effect; rebuild-from-scratch with a regression test covering the resize path.

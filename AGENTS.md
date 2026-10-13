@@ -26,6 +26,9 @@ tarts pocketworld # Living pocket world: rivers, rain, plates, seasons
 cargo test        # Run tests
 cargo bench       # Run benchmarks
 
+# Headless render analysis (dev)
+tarts --analyze pocketworld --view height --frames 3000
+
 # Code Quality (run after changes)
 cargo fmt --check  # Check formatting
 cargo test --lib   # Run library tests

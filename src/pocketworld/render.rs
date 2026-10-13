@@ -1,11 +1,12 @@
 //! Rendering: pure functions of the simulation state. `Renderer` holds
-//! the active display layer (cycled with `l`/`k`); every view reads the
-//! world and the layer states without owning any of them. Color carries
-//! elevation, glyph carries state; in the heightmap view brightness =
-//! height, strictly.
+//! the active display layer (cycled with `j`/`k`, plus the `l` legend
+//! screen); every view reads the world and the layer states without
+//! owning any of them. Color carries elevation, glyph carries state; in
+//! the heightmap view brightness = height, strictly.
 
-use crate::pocketworld::climate::{Climate, TEMP_SNOW, temp_at, wind_at};
-use crate::pocketworld::hydro::{Hydro, OCEAN, RIVER_FLUX, WET_MIN};
+use crate::buffer::{Buffer, Cell};
+use crate::pocketworld::climate::{Climate, temp_at};
+use crate::pocketworld::hydro::{Hydro, RIVER_FLUX, WET_MIN};
 use crate::pocketworld::life::{ASH, BURNING};
 use crate::pocketworld::sim::Sim;
 use crate::pocketworld::tectonics::PLATE_CONV_T;
@@ -55,14 +56,19 @@ impl Layer {
     }
 }
 
-/// Display state: which layer view is on screen.
+/// Display state: which layer view is on screen, and whether the
+/// legend overlay is showing.
 pub(crate) struct Renderer {
     pub(crate) view: Layer,
+    pub(crate) legend: bool,
 }
 
 impl Renderer {
     pub(crate) fn new() -> Self {
-        Self { view: Layer::Biome }
+        Self {
+            view: Layer::Biome,
+            legend: false,
+        }
     }
 
     /// Glyph + color for one cell under the active view.
@@ -77,7 +83,7 @@ impl Renderer {
             Layer::Height => height_view(&sim.world, x, y),
             Layer::Hydro => hydro_view(&sim.world, &sim.hydro, x, y),
             Layer::Temp => temp_view(&sim.world, x, y),
-            Layer::Wind => wind_view(&sim.world, x, y),
+            Layer::Wind => wind_view(&sim.climate, &sim.world, x, y),
             Layer::Humidity => humidity_view(&sim.climate, sim.world.w, x, y),
             Layer::Biome => biome_view(sim, x, y),
         }
@@ -85,8 +91,86 @@ impl Renderer {
 
     /// HUD label for the active layer, written on the top row.
     pub(crate) fn hud_label(&self) -> String {
-        format!(" LAYER: {} [l/k]", layer_name(self.view))
+        format!(" LAYER: {} [j/k] legend:l", layer_name(self.view))
     }
+}
+
+/// The legend screen: a full page of glyph meanings, shown instead of
+/// the world while toggled.
+pub(crate) fn draw_legend(buf: &mut Buffer) {
+    let put = |buf: &mut Buffer, x: usize, y: usize, s: &str, c: style::Color| {
+        for (n, ch) in s.chars().enumerate() {
+            if x + n < buf.width && y < buf.height {
+                buf.set(
+                    x + n,
+                    y,
+                    Cell::new(ch, c, style::Attribute::NormalIntensity),
+                );
+            }
+        }
+    };
+    let title = "POCKETWORLD — LEGEND";
+    let tx = buf.width.saturating_sub(title.chars().count()) / 2;
+    put(buf, tx, 2, title, rgb(230, 232, 238));
+
+    let rows = legend_rows();
+    let cols = if buf.width >= 60 { 2 } else { 1 };
+    let col_w = 30;
+    let per_col = rows.len().div_ceil(cols);
+    for (n, (g, desc)) in rows.iter().enumerate() {
+        let col = n / per_col;
+        let row = n % per_col;
+        let x = 4 + col * col_w;
+        let y = 5 + row;
+        if y + 2 < buf.height && x + 3 < buf.width {
+            buf.set(
+                x,
+                y,
+                Cell::new(
+                    *g,
+                    rgb(230, 232, 238),
+                    style::Attribute::NormalIntensity,
+                ),
+            );
+            put(buf, x + 3, y, desc, rgb(200, 204, 212));
+        }
+    }
+    let foot = "[l] back to the world";
+    let fx = buf.width.saturating_sub(foot.chars().count()) / 2;
+    put(
+        buf,
+        fx,
+        buf.height.saturating_sub(2),
+        foot,
+        rgb(160, 164, 172),
+    );
+}
+
+/// The legend table: glyph -> meaning, drawn as an overlay when the
+/// legend toggle is on.
+pub(crate) fn legend_rows() -> Vec<(char, &'static str)> {
+    vec![
+        ('≈', "ocean (deep)"),
+        ('~', "sea / lake"),
+        ('˃', "river, flow dir"),
+        ('.', "shore"),
+        ('"', "grass"),
+        ('♣', "forest"),
+        ('Ψ', "swamp"),
+        ('∴', "desert"),
+        ('▲', "rock"),
+        ('°', "scree"),
+        ('*', "snow / frost"),
+        ('❄', "snow pack"),
+        ('▓', "glacier"),
+        ('◉', "mantle plume"),
+        ('≡', "plate convergent"),
+        ('¦', "plate rift"),
+        ('▒', "cloud"),
+        ('|', "rain"),
+        ('✱', "fire"),
+        ('░', "ash"),
+    ]
 }
 
 /// Biome view (the default). Priority (top wins): rain on land → cloud
@@ -111,78 +195,227 @@ fn biome_view(sim: &Sim, x: usize, y: usize) -> (char, style::Color) {
         };
         return (glyph, rgb(170, 200, 230));
     }
-    if sim.climate.cloud_cover[i] > 0.15
-        && (x + y + (world.time * 3.0) as usize) % 2 == 0
-    {
-        // Dithered translucency: cloud draws on the parity checkerboard,
-        // terrain shows through the other cells — fronts shimmer.
-        return if sim.climate.cloud_cover[i] > 0.5 {
-            ('▓', rgb(228, 231, 236))
-        } else {
-            ('▒', rgb(198, 204, 212))
-        };
-    }
+
+    let base = biome_base(sim, x, y, i, d, rel);
+    cloud_overlay(sim, i, base)
+}
+
+/// The terrain itself (water + land biomes), before the sky is drawn
+/// over it.
+fn biome_base(
+    sim: &Sim,
+    x: usize,
+    y: usize,
+    i: usize,
+    d: f32,
+    rel: f32,
+) -> (char, style::Color) {
+    let world = &sim.world;
 
     if d > RENDER_WET_MIN {
-        let flux_mag = flux_out(&sim.hydro.flux[i]);
-        if flux_mag > RIVER_FLUX {
-            // River: motion, not a body — glyph points downstream.
-            return (river_glyph(&sim.hydro.flux[i]), rgb(80, 200, 220));
-        }
-        if sim.hydro.class[i] & OCEAN != 0 {
-            return if d > 0.15 {
-                ('≈', rgb(18, 60, 110))
+        // The sea is the sea: any water below sea level renders as
+        // ocean, decided from the smooth fields (elevation and water
+        // advect calmly) rather than the connectivity flag, which
+        // flips as drifting coastlines change what is connected —
+        // whole basins used to strobe blue/teal on every refresh.
+        if world.elevation[i] < world.sea_level {
+            let de = sim.hydro.water_ema[i];
+            return if de > 0.15 {
+                ('≈', rgb(30, 84, 148))
             } else {
-                ('~', rgb(45, 110, 160))
+                ('~', rgb(70, 140, 190))
             };
         }
-        // Unflagged standing water: lake.
-        return ('~', rgb(60, 150, 150));
+        // Water on land: rivers where the flow is channel-like
+        // (shallow and fast), lakes where it stands deep or slow.
+        let flux_mag = flux_out(&sim.hydro.flux_ema[i]);
+        if flux_mag > RIVER_FLUX && d < 0.08 {
+            // River: motion, not a body — glyph points downstream.
+            return (river_glyph(&sim.hydro.flux_ema[i]), rgb(96, 214, 232));
+        }
+        return ('~', rgb(78, 178, 178));
     }
 
-    // Land: color carries elevation, glyph carries state.
+    // Land: color carries elevation, glyph carries state — with a
+    // per-cell jitter so bands are not flat paint.
     let temp = temp_at(world, y, i, world.time);
     let m = sim.climate.humidity[i];
     let height_t = (rel / 0.8).clamp(0.0, 1.0);
-    let color = ramp_height(height_t);
+    let color = match ramp_height(height_t) {
+        style::Color::Rgb { r, g, b } => {
+            let jc = jitter((r, g, b), x, y, 10);
+            rgb(jc.0, jc.1, jc.2)
+        }
+        other => other,
+    };
 
     if sim.life.fire[i] == BURNING {
         let frames = ['✱', '❋', '✹'];
         let f = (x + y + (world.time * 8.0) as usize) % 3;
         return (frames[f], rgb(250, 140, 40));
     }
-    if sim.climate.snow[i] > 0.02 {
-        return ('*', rgb(235, 240, 245)); // snow-pack (renders over cold land)
+    // The cryosphere: substantial snow owns the cell; light dust lets
+    // the terrain show through (rock must stay visible under thin
+    // cover — mountains were disappearing under white).
+    let s = sim.climate.snow[i];
+    if s > 0.14 {
+        let (g, col): (char, (u8, u8, u8)) = if s > 0.4 {
+            ('▓', (206, 224, 248)) // glacial sheet (top decile)
+        } else if s > 0.3 {
+            ('❄', (226, 240, 251)) // heavy pack
+        } else {
+            ('*', (244, 249, 253)) // packed snow
+        };
+        // Aging warmth: near-melting snow trends translucent blue.
+        let col = if temp > -0.2 {
+            (col.0.saturating_sub(20), col.1, col.2)
+        } else {
+            col
+        };
+        let jc = jitter(col, x, y, 8);
+        return (g, rgb(jc.0, jc.1, jc.2));
     }
-    if temp < TEMP_SNOW && rel > 0.3 {
-        return ('*', rgb(235, 240, 245)); // high cold peaks stay white
+    // Permanent frost caps only on genuinely cold high peaks.
+    if temp < -0.05 && world.rock_level > 0.0 && rel > world.rock_level {
+        let jc = jitter((198, 218, 242), x, y, 8);
+        return ('*', rgb(jc.0, jc.1, jc.2));
     }
     if sim.life.fire[i] == ASH {
-        return ('░', rgb(70, 65, 60)); // burnt ground
+        return ('░', rgb(95, 88, 80)); // burnt ground
     }
-    match rel {
-        r if r < 0.02 => ('.', rgb(194, 178, 128)), // shore
+    // Per-object variety: a stable position hash picks among narrow
+    // glyph variants so biomes are not monocultures.
+    let result = match rel {
+        r if r < 0.02 => {
+            let jc = jitter((210, 192, 138), x, y, 10);
+            (pick(x, y, &['.', ',']), rgb(jc.0, jc.1, jc.2)) // shore
+        }
         r if world.rock_level > 0.0 && r > world.rock_level => {
-            ('▲', color) // rock — the mountain band
+            (pick(x, y, &['▲', '∆']), color) // rock — the mountain band
         }
         r if world.scree_level > 0.0 && r > world.scree_level => {
-            ('°', color) // scree
+            (pick(x, y, &['°', '˚']), color) // scree
         }
-        r if r < 0.08 && m > 0.08 => ('Ψ', color), // swamp
-        _ if temp > 0.75 && m < 0.005 => ('∴', color), // hot + dry desert
+        r if r < 0.08 && m > 0.08 => (pick(x, y, &['Ψ', 'ψ']), color), // swamp
+        _ if temp > 0.75 && m < 0.005 => {
+            (pick(x, y, &['∴', '∵']), color) // hot + dry desert
+        }
         _ => {
-            if sim.life.vegetation[i] > 0.5 || m > 0.02 {
-                ('♣', color) // forest
+            // Vegetation stays off the mountains: the high country
+            // belongs to scree and rock.
+            let below_alpine = world.scree_level <= 0.0 || rel < world.scree_level;
+            if below_alpine && (sim.life.vegetation[i] > 0.5 || m > 0.012) {
+                // Mixed canopy: hash-picked greens make a forest read
+                // as woodland, not one flat color.
+                const CANOPY: [(u8, u8, u8); 5] = [
+                    (40, 120, 70),  // dark pine
+                    (70, 160, 90),  // forest green
+                    (110, 185, 95), // spring green
+                    (60, 170, 110), // tropical
+                    (85, 150, 105), // taiga
+                ];
+                let c = pick(y, x, &CANOPY); // swapped hash: decorrelated from the glyph
+                (pick(x, y, &['♣', '♠']), rgb(c.0, c.1, c.2)) // forest
+            } else if below_alpine {
+                let jc = jitter((148, 192, 92), x, y, 14);
+                (
+                    pick(x, y, &['"', '\'', '˙', ',']),
+                    rgb(jc.0, jc.1, jc.2), // grass: green to yellow-green
+                )
             } else {
-                ('"', color) // grass
+                (pick(x, y, &['°', '˚']), color) // alpine: scree, not tundra grass
             }
         }
+    };
+    if s > 0.02 {
+        // Light snow: the terrain shows through with a cool tint.
+        let t = (s / 0.14).min(1.0) * 0.4;
+        (result.0, mix_toward(result.1, (228, 237, 249), t))
+    } else {
+        result
     }
+}
+
+/// Position hash with proper mixing (multiply-xorshift chain): a
+/// naive `x·31 + y·97` showed visible diagonal lattice patterns in
+/// the grass. Never time-based — glyphs must not flicker.
+fn cell_hash(x: usize, y: usize) -> u32 {
+    let mut h =
+        (x as u32).wrapping_mul(0x9E3779B1) ^ (y as u32).wrapping_mul(0x85EBCA6B);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0xC2B2AE35);
+    h ^ (h >> 16)
+}
+
+/// Stable per-cell variant pick: a position hash (never time — glyphs
+/// must not flicker) chooses among narrow-width alternatives.
+fn pick<T: Copy>(x: usize, y: usize, variants: &[T]) -> T {
+    variants[(cell_hash(x, y) as usize) % variants.len()]
+}
+
+/// Deterministic per-cell color jitter (±`amt` per channel), hashed
+/// from position only — varied terrain without flicker.
+fn jitter(c: (u8, u8, u8), x: usize, y: usize, amt: u8) -> (u8, u8, u8) {
+    let h = cell_hash(x, y);
+    let j = |salt: u32| -> i32 {
+        let span = 2 * amt as usize + 1;
+        ((h.wrapping_mul(salt) >> 12) % span as u32) as i32 - amt as i32
+    };
+    let cl = |v: i32| v.clamp(0, 255) as u8;
+    (
+        cl(c.0 as i32 + j(3)),
+        cl(c.1 as i32 + j(5)),
+        cl(c.2 as i32 + j(7)),
+    )
 }
 
 /// Plates view: drift arrows at seeds, boundaries typed by stress (red
 /// convergent — ranges grow here, cyan divergent — rift, yellow
 /// transform — shear, quakes), interiors in dim per-plate hues.
+/// The sky over one cell: light coverage milks the terrain's color
+/// (true translucency without glyph dithering), heavy coverage takes
+/// over with cloud glyphs by density — fresh clouds near-white,
+/// rain-loaded cells steel-blue. Over open water the sea shows
+/// through until full storm cover.
+fn cloud_overlay(
+    sim: &Sim,
+    i: usize,
+    base: (char, style::Color),
+) -> (char, style::Color) {
+    let cover = sim.climate.cover_ema[i];
+    if cover <= 0.15 {
+        return base;
+    }
+    let over_water = matches!(base.0, '≈' | '~');
+    if cover > 0.85 {
+        return ('▓', rgb(172, 186, 204)); // storm cell, rain-loaded
+    }
+    if !over_water && cover > 0.65 {
+        return ('▒', rgb(233, 238, 244)); // dense cloud
+    }
+    if !over_water && cover > 0.35 {
+        return ('░', rgb(243, 246, 250)); // cloud body
+    }
+    // Haze: keep the base glyph, milk its color toward cloud-white.
+    let t = if over_water {
+        ((cover - 0.15) / 0.7) * 0.6
+    } else {
+        ((cover - 0.15) / 0.2) * 0.7
+    };
+    (base.0, mix_toward(base.1, (241, 245, 249), t))
+}
+
+/// Linear color mix toward a target RGB.
+fn mix_toward(c: style::Color, to: (u8, u8, u8), t: f32) -> style::Color {
+    match c {
+        style::Color::Rgb { r, g, b } => {
+            let mix = |a: u8, b_: u8| (a as f32 + (b_ as f32 - a as f32) * t) as u8;
+            rgb(mix(r, to.0), mix(g, to.1), mix(b, to.2))
+        }
+        other => other,
+    }
+}
+
 fn plates_view(sim: &Sim, x: usize, y: usize) -> (char, style::Color) {
     let world = &sim.world;
     let width = world.w;
@@ -268,22 +501,26 @@ fn height_view(world: &World, x: usize, y: usize) -> (char, style::Color) {
     let shade = (1.0 + 9.0 * (dhdx + dhdy)).clamp(0.55, 1.45);
 
     let (rgbv, glyph) = if rel < 0.0 {
-        // Bathymetry: darker = deeper.
-        let depth = (-rel / 0.35).clamp(0.0, 1.0);
-        match (depth * 3.0) as usize {
-            0 => ((30, 64, 104), '~'),
-            1 => ((20, 42, 76), '≈'),
-            _ => ((13, 22, 46), '≈'),
+        // Bathymetry: darker = deeper (4 bands).
+        let depth = (-rel / 0.4).clamp(0.0, 1.0);
+        match (depth * 4.0) as usize {
+            0 => ((36, 78, 122), '~'),
+            1 => ((26, 56, 96), '≈'),
+            2 => ((18, 38, 74), '≈'),
+            _ => ((12, 22, 50), '≈'),
         }
     } else {
-        // Land: six strictly-brightening bands.
-        let t = (rel / 0.9).clamp(0.0, 1.0);
-        match (t * 6.0) as usize {
-            0 => ((38, 94, 56), '·'),
-            1 => ((72, 132, 62), '·'),
-            2 => ((122, 152, 68), '░'),
-            3 => ((172, 162, 86), '▒'),
-            4 => ((204, 200, 192), '▓'),
+        // Land: eight strictly-brightening bands (luminance is height)
+        // mapped over the populated relief range.
+        let t = (rel / 0.75).clamp(0.0, 1.0);
+        match (t * 8.0) as usize {
+            0 => ((48, 108, 64), '·'),
+            1 => ((78, 136, 70), '·'),
+            2 => ((110, 160, 74), '░'),
+            3 => ((140, 168, 84), '░'),
+            4 => ((170, 172, 100), '▒'),
+            5 => ((192, 186, 150), '▒'),
+            6 => ((214, 212, 200), '▓'),
             _ => ((252, 252, 253), '▓'),
         }
     };
@@ -309,11 +546,16 @@ fn hydro_view(
     let i = y * world.w + x;
     let d = world.water[i];
     if d > WET_MIN {
-        let flux_mag = flux_out(&hydro.flux[i]);
-        if flux_mag > RIVER_FLUX {
-            return (river_glyph(&hydro.flux[i]), rgb(80, 200, 220));
+        // Below sea level is ocean: depth ramp only, no flow vectors —
+        // currents over the sea would draw as pulsing river glyphs.
+        // On land, arrows only where the flow is channel-like.
+        if world.elevation[i] >= world.sea_level {
+            let flux_mag = flux_out(&hydro.flux_ema[i]);
+            if flux_mag > RIVER_FLUX && d < 0.08 {
+                return (river_glyph(&hydro.flux_ema[i]), rgb(80, 200, 220));
+            }
         }
-        let t = (d / 0.2).min(1.0);
+        let t = (hydro.water_ema[i] / 0.2).min(1.0);
         return ('~', ramp_water(t));
     }
     ('·', rgb(40, 40, 45))
@@ -331,9 +573,15 @@ fn temp_view(world: &World, x: usize, y: usize) -> (char, style::Color) {
     (glyph, ramp_temp(t))
 }
 
-/// Wind view: direction glyph, speed ramp.
-fn wind_view(world: &World, x: usize, y: usize) -> (char, style::Color) {
-    let (u, v) = wind_at(world, x, y);
+/// Wind view: direction glyph, speed ramp — reading the simulated
+/// momentum field.
+fn wind_view(
+    climate: &Climate,
+    world: &World,
+    x: usize,
+    y: usize,
+) -> (char, style::Color) {
+    let (u, v) = climate.wind_at(world, x, y);
     let glyph = if u.abs() > v.abs() {
         if u > 0.0 { '˃' } else { '˂' }
     } else if v > 0.0 {
@@ -383,25 +631,27 @@ fn river_glyph(flux: &[f32; 4]) -> char {
     }
 }
 
-/// Elevation color ramp: quantized bright bands — green lowlands → olive →
-/// tan → grey rock → white peaks. Hard bands read as contour lines.
+/// Elevation color ramp: quantized bright bands — green lowlands →
+/// olive → tan → grey rock → white peaks. Hard bands read as contour
+/// lines. Brightness pass (round C, 2026-10-12): luminous greens and
+/// tans, sea included.
 fn ramp_height(t: f32) -> style::Color {
     let band = (t.clamp(0.0, 1.0) * 5.0) as usize;
     let (r, g, b) = match band {
-        0 => (98, 158, 66),
-        1 => (140, 168, 74),
-        2 => (188, 158, 92),
-        3 => (176, 170, 163),
-        _ => (240, 244, 248),
+        0 => (118, 178, 78),
+        1 => (156, 184, 86),
+        2 => (200, 172, 102),
+        3 => (190, 186, 178),
+        _ => (245, 248, 252),
     };
     style::Color::Rgb { r, g, b }
 }
 
 fn ramp_water(t: f32) -> style::Color {
     let stops: [(f32, (u8, u8, u8)); 3] = [
-        (0.0, (125, 185, 220)),
-        (0.5, (60, 130, 190)),
-        (1.0, (22, 62, 120)),
+        (0.0, (150, 205, 235)),
+        (0.5, (80, 150, 205)),
+        (1.0, (36, 90, 160)),
     ];
     ramp(&stops, t.clamp(0.0, 1.0))
 }
@@ -519,8 +769,14 @@ mod tests {
             }
         }
         eprintln!(
-            "CENSUS rain={rain}/4000 river={river}/4000 standing={water}/4000 distinct={}",
-            kinds.len()
+            "CENSUS rain={rain}/4000 river={river}/4000 standing={water}/4000 distinct={} below_sea={} wet={}",
+            kinds.len(),
+            t.world
+                .elevation
+                .iter()
+                .filter(|e| **e < t.world.sea_level)
+                .count(),
+            t.world.water.iter().filter(|d| **d > 0.004).count()
         );
         assert!(
             rain < 800,

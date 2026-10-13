@@ -8,9 +8,11 @@
 use crate::pocketworld::effect::PocketWorldOptions;
 use crate::pocketworld::world::World;
 
-/// Target fraction of the map below sea level. Land-dominant (round 2):
-/// a lakes-and-rivers world with three times the terrain for rivers.
-const SEA_FRACTION: f64 = 0.28;
+/// Target fraction of the BASE field below sea level. The mountain
+/// mask is added after the percentile and lifts ~7% of sea cells into
+/// land, so this runs high to land near 40% actual water (user,
+/// 2026-10-12). Eustasy tracks this fraction of the live crust.
+pub(crate) const SEA_FRACTION: f64 = 0.47;
 
 /// Mountain-chain spatial frequency for the ridged noise band.
 const MOUNTAIN_SCALE: f64 = 0.045;
@@ -23,6 +25,11 @@ pub(crate) fn generate(world: &mut World, options: &PocketWorldOptions) {
     let warp_strength = options.warp_strength;
     let warp_scale = options.warp_scale;
 
+    // Pass 1: the base field (two-band fBm, domain-warped, on the
+    // cylinder). Warped positions and samples are kept for pass 2.
+    let cells = width * height;
+    let mut warped = vec![(0.0f64, 0.0f64, 0.0f64); cells];
+    let mut samples = vec![0.0f32; cells];
     for y in 0..height {
         for x in 0..width {
             let wu = world.noise.octave_noise_3d(
@@ -49,10 +56,10 @@ pub(crate) fn generate(world: &mut World, options: &PocketWorldOptions) {
             let (sin_t, cos_t) = theta.sin_cos();
             let (px, py, pz) = (radius * cos_t, v, radius * sin_t);
 
-            // Two-band base (continent + detail), then a mountain MASK
-            // on top: blending ridges into the average compresses them
-            // below every threshold (round-1 lesson) — chains must be
-            // added after, tall enough to clear the rock/snow bands.
+            // Two-band base (continent + detail). The mountain MASK is
+            // added in pass 2, AFTER sea level is taken from the base:
+            // sea as a percentile of the masked field rose with the
+            // mountains and ate the relief (2026-10-12 lesson).
             let continent = world.noise.octave_noise_3d(
                 px,
                 py,
@@ -69,52 +76,57 @@ pub(crate) fn generate(world: &mut World, options: &PocketWorldOptions) {
                 options.persistence,
                 options.detail_scale,
             );
-            let mut sample = 0.75 * continent + 0.25 * detail;
-            sample = (sample * 1.8).clamp(-1.0, 1.0);
-            let mut h = ((sample + 1.0) / 2.0) as f32;
+            let sample: f32 =
+                ((0.75 * continent + 0.25 * detail) * 1.8).clamp(-1.0, 1.0) as f32;
 
-            // Mountain chains: ridged noise above a mask threshold, added
-            // on top and scaled by landness so ranges ride the continents.
-            let ridged = 1.0
-                - world
-                    .noise
-                    .octave_noise_3d(
-                        px + 250.5,
-                        py + 311.4,
-                        pz + 97.2,
-                        4,
-                        0.5,
-                        MOUNTAIN_SCALE,
-                    )
-                    .abs() as f32;
-            let mask = ((ridged - 0.72) / 0.28).clamp(0.0, 1.0);
-            let landness = (sample as f32).clamp(0.0, 1.0);
-            h += mask * mask * 0.6 * (0.4 + 0.6 * landness);
-
-            world.elevation[y * width + x] = h.min(1.0);
+            warped[y * width + x] = (px, py, pz);
+            samples[y * width + x] = sample;
+            world.elevation[y * width + x] = (sample + 1.0) / 2.0;
         }
     }
 
-    // Sea level as a height percentile (~28% — land-dominant world),
-    // then ocean fill.
+    // Sea level as a percentile of the BASE field, then land stretch.
     let mut sorted = world.elevation.clone();
     let idx = ((sorted.len() as f64 * SEA_FRACTION) as usize).min(sorted.len() - 1);
     select_nth(&mut sorted, idx);
     world.sea_level = sorted[idx];
 
+    // Pass 2: mountain chains on top of the base, scaled by landness
+    // so ranges ride the continents; then stretch above-sea relief to
+    // use the height range (compressed distributions read flat).
+    for i in 0..cells {
+        let (px, py, pz) = warped[i];
+        let sample = samples[i];
+        let mut h = (sample + 1.0) / 2.0;
+        let ridged = 1.0
+            - world
+                .noise
+                .octave_noise_3d(
+                    px + 250.5,
+                    py + 311.4,
+                    pz + 97.2,
+                    4,
+                    0.5,
+                    MOUNTAIN_SCALE,
+                )
+                .abs() as f32;
+        let mask = ((ridged - 0.68) / 0.32).clamp(0.0, 1.0);
+        let landness = sample.clamp(0.0, 1.0);
+        h += mask * mask * 0.85 * (0.5 + 0.5 * landness);
+
+        let h = h.min(1.0);
+        world.elevation[i] = if h > world.sea_level {
+            let rel = h - world.sea_level;
+            world.sea_level + (rel * 2.4).min((1.0 - world.sea_level).max(0.0))
+        } else {
+            h
+        };
+    }
+
+    // Ocean fill from the final field.
     for i in 0..world.elevation.len() {
         if world.elevation[i] < world.sea_level {
             world.water[i] = world.sea_level - world.elevation[i];
-        }
-    }
-
-    // Stretch land heights: compressed distributions read as flat plains
-    // (round-4 review). Sea fill is untouched; only above-sea relief
-    // expands to actually use the height range.
-    for h in world.elevation.iter_mut() {
-        if *h > world.sea_level {
-            let rel = *h - world.sea_level;
-            *h = (world.sea_level + (rel * 1.7).min(0.9)).min(1.0);
         }
     }
 }
@@ -143,7 +155,7 @@ pub(crate) fn thresholds(world: &mut World) {
 
 /// Partial selection: reorder so that element `nth` is in its sorted
 /// position.
-fn select_nth(v: &mut [f32], nth: usize) {
+pub(crate) fn select_nth(v: &mut [f32], nth: usize) {
     let mut lo = 0usize;
     let mut hi = v.len() - 1;
     while lo < hi {
@@ -186,6 +198,36 @@ mod tests {
         let max = t.world.elevation.iter().copied().fold(0.0f32, f32::max);
         let min = t.world.elevation.iter().copied().fold(1.0f32, f32::min);
         assert!(max - min > 0.3, "world too flat: [{min}, {max}]");
+    }
+
+    #[test]
+    fn fresh_world_has_real_relief() {
+        // Relief floor (2026-10-12 round): the 40%-sea world had
+        // quietly starved the mountain mask (landness dropped) —
+        // worlds booted flat. Lock: populated height bands and a
+        // real high-country cell count at t=0.
+        let t = test_sim(42, 100, 40);
+        let sea = t.world.sea_level;
+        let mut bands = std::collections::HashSet::new();
+        let mut high = 0usize;
+        for &e in &t.world.elevation {
+            if e > sea {
+                let rel = e - sea;
+                bands
+                    .insert((((rel / 0.75).clamp(0.0, 1.0) * 8.0) as usize).min(7));
+                if rel > 0.35 {
+                    high += 1;
+                }
+            }
+        }
+        eprintln!(
+            "RELIEF bands={} high={high} sea={:.3} maxh={:.3}",
+            bands.len(),
+            t.world.sea_level,
+            t.world.elevation.iter().cloned().fold(0.0f32, f32::max)
+        );
+        assert!(bands.len() >= 4, "height bands collapsed: {}", bands.len());
+        assert!(high > 150, "no mountains at boot: {high} cells above 0.35");
     }
 
     #[test]

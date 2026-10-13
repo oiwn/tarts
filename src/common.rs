@@ -29,6 +29,14 @@ pub trait TerminalEffect {
     /// Non-exit key press. Default: ignore. Effects that want display
     /// controls (e.g. terrain's layer cycling) override this.
     fn handle_key(&mut self, _key: event::KeyEvent) {}
+    /// Renderable screens this effect exposes. Most effects have
+    /// exactly one — their default screen.
+    fn views(&self) -> Vec<&'static str> {
+        vec!["default"]
+    }
+    /// Switch the active view to a name from `views`. Default: no-op —
+    /// single-view effects have nothing to switch.
+    fn set_view(&mut self, _name: &str) {}
 }
 
 pub fn process_input<TE>(effect: &mut TE) -> Result<bool>

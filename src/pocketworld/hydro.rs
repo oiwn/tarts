@@ -3,6 +3,7 @@
 //! mountain springs, and the emergent ocean/lake classification.
 //! Rivers have momentum because flux is persistent state, not scratch.
 
+use crate::pocketworld::tectonics::{PLATE_REFRESH, Tectonics};
 use crate::pocketworld::world::World;
 
 /// How fast an ocean cell relaxes back toward its fill depth: the ocean is a
@@ -28,8 +29,16 @@ const PIPE_SUBSTEPS: usize = 2;
 pub(crate) const WET_MIN: f32 = 0.004;
 /// Flux magnitude above which a wet cell counts as a river.
 pub(crate) const RIVER_FLUX: f32 = 0.0012;
+/// Smoothing factor for the render-side averages (flux and depth, per
+/// tick): the raw fields oscillate with damped sloshing, which flaps
+/// glyphs at every hard cutoff.
+const RENDER_EMA: f32 = 0.3;
 /// Recompute ocean connectivity every N ticks.
 const CLASS_REFRESH: u32 = 90;
+/// Cadence for relocating drowned headwaters: a spring rides its
+/// plate, but the crust itself can subside below sea — a drowned
+/// spring is relocated to the current best high ground within ~1.5 s.
+const SPRING_REFRESH: u32 = 90;
 /// Constant headwater emission per mountain spring, per tick.
 const SPRING_FLOW: f32 = 0.0015;
 
@@ -37,14 +46,26 @@ const SPRING_FLOW: f32 = 0.0015;
 pub(crate) const OCEAN: u8 = 1;
 
 pub(crate) struct Hydro {
-    /// Runtime enable flag (composed from `TerrainOptions`).
+    /// Runtime enable flag (composed from `PocketWorldOptions`).
     pub(crate) on: bool,
     /// Persistent pipe outflux per cell: left, right, up, down.
     pub(crate) flux: Vec<[f32; 4]>,
+    /// Slow average of `flux` for rendering and river classification
+    /// only — the raw fluxes oscillate tick to tick (damped sloshing),
+    /// which flips the flow-glyph argmax and shimmers the channels.
+    /// The simulation itself (erosion, transport, infiltration) reads
+    /// the raw flux.
+    pub(crate) flux_ema: Vec<[f32; 4]>,
+    /// Slow average of water depth for rendering only — the sea
+    /// sloshes tick to tick (boundary-condition relax), which flaps
+    /// the deep/shallow cutoffs and the depth-ramp bands.
+    pub(crate) water_ema: Vec<f32>,
     /// Per-cell classification flags (OCEAN; lakes are unflagged water).
     pub(crate) class: Vec<u8>,
     /// Mountain spring headwaters — constant river sources (round 4).
-    pub(crate) springs: Vec<usize>,
+    /// Float positions: they advect with their plate so headwaters
+    /// keep their mountains as the crust drifts.
+    pub(crate) springs: Vec<(f32, f32)>,
 }
 
 impl Hydro {
@@ -52,6 +73,8 @@ impl Hydro {
         Self {
             on: true,
             flux: vec![[0.0; 4]; cells],
+            flux_ema: vec![[0.0; 4]; cells],
+            water_ema: vec![0.0; cells],
             class: vec![0; cells],
             springs: Vec::new(),
         }
@@ -69,23 +92,40 @@ impl Hydro {
         candidates
             .sort_by(|a, b| world.elevation[*b].total_cmp(&world.elevation[*a]));
         let min_dist = 8;
-        let mut springs = Vec::new();
+        let mut springs: Vec<(f32, f32)> = Vec::new();
         for cand in candidates {
-            if springs.len() >= 8 {
+            if springs.len() >= 12 {
                 break;
             }
             let (cx, cy) = (cand % width, cand / width);
             let far_enough = springs.iter().all(|s| {
-                let (sx, sy) = (s % width, s / width);
-                let dx = (sx as isize - cx as isize).abs();
-                let dy = (sy as isize - cy as isize).abs();
+                let dx = (s.0 as isize - cx as isize).abs();
+                let dy = (s.1 as isize - cy as isize).abs();
                 dx + dy >= min_dist
             });
             if far_enough {
-                springs.push(cand);
+                springs.push((cx as f32, cy as f32));
             }
         }
         self.springs = springs;
+    }
+
+    /// Springs ride their plate: headwater positions advect with the
+    /// crust on the same cadence (and by the same displacement) as the
+    /// terrain gather, so rivers keep their mountains instead of being
+    /// stranded by drifting topography.
+    pub(crate) fn ride_plates(&mut self, world: &World, tectonics: &Tectonics) {
+        let dt = PLATE_REFRESH as f32;
+        for s in &mut self.springs {
+            let (x, y) = *s;
+            let xi = x.rem_euclid(world.w as f32) as usize;
+            let yi = (y.clamp(0.0, (world.h - 1) as f32)) as usize;
+            let p = tectonics.plates[tectonics.plate[yi * world.w + xi] as usize];
+            *s = (
+                (x + p.dx * dt).rem_euclid(world.w as f32),
+                (y + p.dy * dt).clamp(0.0, (world.h - 1) as f32),
+            );
+        }
     }
 
     /// The ocean relaxes toward fill (boundary condition); land water
@@ -117,8 +157,53 @@ impl Hydro {
     /// Mountain springs: guaranteed headwaters — rivers by construction,
     /// carved by erosion, fed forever.
     pub(crate) fn emit_springs(&self, world: &mut World) {
-        for s in &self.springs {
-            world.water[*s] += SPRING_FLOW;
+        for &(sx, sy) in &self.springs {
+            let x = (sx.rem_euclid(world.w as f32)) as usize;
+            let y = (sy.clamp(0.0, (world.h - 1) as f32)) as usize;
+            world.water[y * world.w + x] += SPRING_FLOW;
+        }
+    }
+
+    /// Relocate drowned headwaters: a spring rides its plate, but the
+    /// crust under it can subside below sea (rifts, isostasy). A
+    /// drowned spring moves to the highest cell that keeps its distance
+    /// from the other springs — deterministic, no RNG.
+    pub(crate) fn maintain_springs(&mut self, world: &World) {
+        if world.tick % SPRING_REFRESH != 0 {
+            return;
+        }
+        let min_elev = world.sea_level + 0.05;
+        for si in 0..self.springs.len() {
+            let (sx, sy) = self.springs[si];
+            let x = (sx.rem_euclid(world.w as f32)) as usize;
+            let y = (sy.clamp(0.0, (world.h - 1) as f32)) as usize;
+            if world.elevation[y * world.w + x] > min_elev {
+                continue;
+            }
+            let mut best: Option<usize> = None;
+            let mut best_e = min_elev;
+            for i in 0..world.elevation.len() {
+                let e = world.elevation[i];
+                if e <= best_e {
+                    continue;
+                }
+                let (cx, cy) = (i % world.w, i / world.w);
+                let spaced =
+                    self.springs.iter().enumerate().all(|(j, &(ox, oy))| {
+                        j == si || {
+                            let dx = (ox as isize - cx as isize).abs();
+                            let dy = (oy as isize - cy as isize).abs();
+                            dx + dy >= 8
+                        }
+                    });
+                if spaced {
+                    best = Some(i);
+                    best_e = e;
+                }
+            }
+            if let Some(i) = best {
+                self.springs[si] = ((i % world.w) as f32, (i / world.w) as f32);
+            }
         }
     }
 
@@ -126,6 +211,16 @@ impl Hydro {
     pub(crate) fn pipes(&mut self, world: &mut World) {
         for _ in 0..PIPE_SUBSTEPS {
             self.pipes_once(world);
+        }
+        // Refresh the render-side averages: classification and flow
+        // glyphs read a smooth signal, the simulation reads the raw.
+        for (ema, f) in self.flux_ema.iter_mut().zip(self.flux.iter()) {
+            for d in 0..4 {
+                ema[d] += (f[d] - ema[d]) * RENDER_EMA;
+            }
+        }
+        for (we, d) in self.water_ema.iter_mut().zip(world.water.iter()) {
+            *we += (*d - *we) * RENDER_EMA;
         }
     }
 

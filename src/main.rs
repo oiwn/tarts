@@ -2,6 +2,7 @@
 use crossterm::{self, cursor, execute, terminal};
 use std::{io, process};
 
+mod analyze;
 mod blank;
 mod boids;
 mod buffer;
@@ -46,8 +47,13 @@ const VALID_SAVERS: &[&str] = &[
 struct AppArgs {
     screen_saver: String,
     check: bool,
+    analyze: bool,
     effect: Option<String>,
     frames: Option<usize>,
+    seed: Option<u32>,
+    view: Option<String>,
+    dump: bool,
+    size: Option<(u16, u16)>,
 }
 
 /// Guard to drop out alternate screen in case of errors
@@ -98,6 +104,38 @@ fn main() -> Result<(), error::TartsError> {
             process::exit(1);
         }
     };
+
+    if args.analyze {
+        let name = args.screen_saver.as_str();
+        if !VALID_SAVERS.contains(&name) {
+            eprintln!("Unknown screen saver: {}", name);
+            print_help();
+            process::exit(1);
+        }
+        let frames = args.frames.unwrap_or(1000);
+        let seed = args.seed.unwrap_or(42);
+        let (width, height) = args
+            .size
+            .unwrap_or((analyze::DEFAULT_WIDTH, analyze::DEFAULT_HEIGHT));
+        let opts = analyze::AnalysisOptions {
+            frames,
+            seed,
+            view: args.view.clone(),
+            dump: args.dump,
+            width,
+            height,
+        };
+        return match analyze::analyze(name, &opts) {
+            Ok(report) => {
+                println!("{}", report);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("{}", e);
+                process::exit(1);
+            }
+        };
+    }
 
     if args.check {
         let effect = args.effect.unwrap_or_else(|| "matrix".to_string());
@@ -217,8 +255,13 @@ fn parse_args() -> Result<AppArgs, String> {
     let mut args = std::env::args().skip(1);
     let mut screen_saver = "matrix".to_string();
     let mut check = false;
+    let mut analyze = false;
     let mut effect = None;
     let mut frames = None;
+    let mut seed = None;
+    let mut view = None;
+    let mut dump = false;
+    let mut size = None;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -232,6 +275,25 @@ fn parse_args() -> Result<AppArgs, String> {
             }
             "--check" => {
                 check = true;
+            }
+            "--analyze" => {
+                analyze = true;
+            }
+            "--seed" => {
+                if let Some(seed_str) = args.next() {
+                    seed = seed_str.parse().ok();
+                }
+            }
+            "--view" => {
+                view = args.next();
+            }
+            "--dump" => {
+                dump = true;
+            }
+            "--size" => {
+                if let Some(size_str) = args.next() {
+                    size = Some(parse_size(&size_str)?);
+                }
             }
             "--print-config" => {
                 if let Err(e) = Config::print_default_config() {
@@ -264,9 +326,28 @@ fn parse_args() -> Result<AppArgs, String> {
     Ok(AppArgs {
         screen_saver,
         check,
+        analyze,
         effect,
         frames,
+        seed,
+        view,
+        dump,
+        size,
     })
+}
+
+/// Parse a `WxH` canvas spec (e.g. `160x50`).
+fn parse_size(s: &str) -> Result<(u16, u16), String> {
+    let (w, h) = s.split_once('x').ok_or_else(|| {
+        format!("invalid size '{}' (expected WxH, e.g. 160x50)", s)
+    })?;
+    let width: u16 = w
+        .parse()
+        .map_err(|_| format!("invalid width in '{}' (expected WxH)", s))?;
+    let height: u16 = h
+        .parse()
+        .map_err(|_| format!("invalid height in '{}' (expected WxH)", s))?;
+    Ok((width, height))
 }
 
 fn print_help() {
@@ -297,6 +378,13 @@ fn print_help() {
     println!("        --check             Run test mode");
     println!("        --effect <EFFECT>    Effect to test (with --check)");
     println!("        --frames <NUM>       Number of frames to run (with --check)");
+    println!(
+        "        --analyze <EFFECT>   Headless render analysis: glyph census + change rate"
+    );
+    println!("        --seed <NUM>         Seed for --analyze (default 42)");
+    println!(
+        "        --view <NAME>        View for --analyze (pocketworld: biome/plates/height/hydro/temp/wind/humidity)"
+    );
     println!("        --print-config       Print default config as TOML to stdout");
     println!();
     println!("CONFIG:");
@@ -310,6 +398,8 @@ fn print_help() {
     println!("    tarts --check            Test with default effect");
     println!("    tarts --check life       Test Life effect");
     println!("    tarts --check --frames 100 life");
+    println!("    tarts --analyze pocketworld --view height --frames 3000");
+    println!("    tarts --analyze pocketworld --view biome --size 160x50 --dump");
     println!("    tarts --print-config > ~/.config/tarts.toml");
     println!("    tarts --version          Show version");
 }

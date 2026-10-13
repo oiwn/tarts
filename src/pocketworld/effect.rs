@@ -4,7 +4,7 @@
 
 use crate::buffer::{Buffer, Cell};
 use crate::common::{DefaultOptions, TerminalEffect};
-use crate::pocketworld::render::{Renderer, rgb};
+use crate::pocketworld::render::{Layer, Renderer, draw_legend, rgb};
 use crate::pocketworld::sim::{Sim, SimLayer};
 use crossterm::style;
 use derive_builder::Builder;
@@ -70,40 +70,72 @@ impl TerminalEffect for PocketWorld {
     fn handle_key(&mut self, key: crossterm::event::KeyEvent) {
         use crossterm::event::KeyCode;
         match key.code {
-            KeyCode::Char('l') => self.renderer.view = self.renderer.view.next(),
-            KeyCode::Char('k') => self.renderer.view = self.renderer.view.prev(),
+            KeyCode::Char('k') => self.renderer.view = self.renderer.view.next(),
+            KeyCode::Char('j') => self.renderer.view = self.renderer.view.prev(),
+            KeyCode::Char('l') => self.renderer.legend = !self.renderer.legend,
             _ => {}
         }
+    }
+
+    /// Programmatic face of `j`/`k`: the layer cycle as named views
+    /// (used by `tarts --analyze`).
+    fn views(&self) -> Vec<&'static str> {
+        vec![
+            "biome", "plates", "height", "hydro", "temp", "wind", "humidity",
+        ]
+    }
+
+    fn set_view(&mut self, name: &str) {
+        self.renderer.view = match name {
+            "biome" => Layer::Biome,
+            "plates" => Layer::Plates,
+            "height" => Layer::Height,
+            "hydro" => Layer::Hydro,
+            "temp" => Layer::Temp,
+            "wind" => Layer::Wind,
+            "humidity" => Layer::Humidity,
+            _ => return,
+        };
     }
 
     fn get_diff(&mut self) -> Vec<(usize, usize, Cell)> {
         let mut curr_buffer =
             Buffer::new(self.screen_size.0 as usize, self.screen_size.1 as usize);
 
-        for y in 0..curr_buffer.height {
-            for x in 0..curr_buffer.width {
-                let (character, color) = self.renderer.classify(&self.sim, x, y);
-                curr_buffer.set(
-                    x,
-                    y,
-                    Cell::new(character, color, style::Attribute::NormalIntensity),
-                );
+        if self.renderer.legend {
+            // The legend is its own screen, not an overlay.
+            draw_legend(&mut curr_buffer);
+        } else {
+            for y in 0..curr_buffer.height {
+                for x in 0..curr_buffer.width {
+                    let (character, color) =
+                        self.renderer.classify(&self.sim, x, y);
+                    curr_buffer.set(
+                        x,
+                        y,
+                        Cell::new(
+                            character,
+                            color,
+                            style::Attribute::NormalIntensity,
+                        ),
+                    );
+                }
             }
-        }
 
-        // HUD: always say which layer is on screen.
-        let label = self.renderer.hud_label();
-        for (n, ch) in label.chars().enumerate() {
-            if n < curr_buffer.width {
-                curr_buffer.set(
-                    n,
-                    0,
-                    Cell::new(
-                        ch,
-                        rgb(210, 212, 216),
-                        style::Attribute::NormalIntensity,
-                    ),
-                );
+            // HUD: always say which layer is on screen.
+            let label = self.renderer.hud_label();
+            for (n, ch) in label.chars().enumerate() {
+                if n < curr_buffer.width {
+                    curr_buffer.set(
+                        n,
+                        0,
+                        Cell::new(
+                            ch,
+                            rgb(210, 212, 216),
+                            style::Attribute::NormalIntensity,
+                        ),
+                    );
+                }
             }
         }
 
@@ -173,14 +205,26 @@ mod tests {
     }
 
     #[test]
-    fn layer_cycling_on_l_and_k() {
+    fn set_view_maps_names() {
+        let mut t = pocketworld(31, 60, 20);
+        assert_eq!(t.views().len(), 7);
+        t.set_view("height");
+        assert_eq!(t.renderer.view, Layer::Height);
+        // Unknown names are ignored, not fatal.
+        t.set_view("nonsense");
+        assert_eq!(t.renderer.view, Layer::Height);
+    }
+
+    #[test]
+    fn layer_cycling_and_legend() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
         let mut t = pocketworld(31, 60, 20);
-        let l = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE);
-        let k = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
+        let next = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
+        let prev = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+        let legend = KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE);
         assert_eq!(t.renderer.view, Layer::Biome);
-        // Forward: l walks the whole cycle and wraps.
+        // Forward: k walks the whole cycle and wraps.
         for expected in [
             Layer::Plates,
             Layer::Height,
@@ -190,13 +234,13 @@ mod tests {
             Layer::Humidity,
             Layer::Biome,
         ] {
-            t.handle_key(l);
+            t.handle_key(next);
             assert_eq!(t.renderer.view, expected);
             // Every layer renders without panicking.
             t.update();
             t.get_diff();
         }
-        // Backward: k walks the cycle in reverse.
+        // Backward: j walks the cycle in reverse.
         for expected in [
             Layer::Humidity,
             Layer::Wind,
@@ -206,10 +250,18 @@ mod tests {
             Layer::Plates,
             Layer::Biome,
         ] {
-            t.handle_key(k);
+            t.handle_key(prev);
             assert_eq!(t.renderer.view, expected);
             t.update();
             t.get_diff();
         }
+        // Legend: l toggles the overlay, rendering stays safe.
+        assert!(!t.renderer.legend);
+        t.handle_key(legend);
+        assert!(t.renderer.legend);
+        t.update();
+        t.get_diff();
+        t.handle_key(legend);
+        assert!(!t.renderer.legend);
     }
 }

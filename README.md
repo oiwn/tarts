@@ -98,6 +98,9 @@ cargo test
 
 # Benchmark performance
 cargo bench
+
+# Analyze what an effect renders — headless glyph census + change rate (dev)
+tarts --analyze pocketworld --view height --frames 3000
 ```
 
 ## 🤝 Contributing

@@ -10,17 +10,21 @@
 use crate::pocketworld::climate::Climate;
 use crate::pocketworld::effect::PocketWorldOptions;
 use crate::pocketworld::elevation;
+use crate::pocketworld::elevation::{SEA_FRACTION, select_nth};
 use crate::pocketworld::erosion::Erosion;
 use crate::pocketworld::hydro::Hydro;
 use crate::pocketworld::life::Life;
 use crate::pocketworld::noise::PerlinNoise;
-use crate::pocketworld::tectonics::Tectonics;
+use crate::pocketworld::tectonics::{PLATE_REFRESH, Tectonics};
 use crate::pocketworld::world::World;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 
 /// Screen-time seconds per simulation tick.
 const TIME_STEP: f64 = 0.033;
+/// Eustasy cadence: the sea relaxes toward its target fraction of the
+/// crust on this tick multiple.
+const EUSTASY_REFRESH: u32 = 90;
 
 /// Toggleable simulation layers. `PocketWorldOptions::disabled` names the
 /// ones to skip; every layer runs by default. `Elevation` is not here:
@@ -102,6 +106,7 @@ impl Sim {
     /// stretch, springs, plates, biome thresholds, first classification.
     fn generate(&mut self, options: &PocketWorldOptions) {
         elevation::generate(&mut self.world, options);
+        self.climate.init_wind(&self.world);
         self.hydro.place_springs(&self.world);
         self.tectonics.generate(&self.world, &mut self.rng);
         elevation::thresholds(&mut self.world);
@@ -119,9 +124,11 @@ impl Sim {
             self.climate.begin();
         }
         if self.enabled(SimLayer::Climate) {
+            self.climate.wind_step(&self.world);
             self.climate.clouds(&mut self.world, &mut self.rng);
         }
         if self.enabled(SimLayer::Hydro) {
+            self.hydro.maintain_springs(&self.world);
             self.hydro.emit_springs(&mut self.world);
         }
         if self.enabled(SimLayer::Climate) {
@@ -132,6 +139,11 @@ impl Sim {
         }
         if self.enabled(SimLayer::Tectonics) {
             self.tectonics.step(&mut self.world, &mut self.rng);
+            // Springs ride their plate on the crust-advection cadence,
+            // keeping headwaters on their drifting mountains.
+            if self.hydro.on && self.world.tick % PLATE_REFRESH == 0 {
+                self.hydro.ride_plates(&self.world, &self.tectonics);
+            }
         }
         if self.enabled(SimLayer::Hydro) {
             self.hydro.pipes(&mut self.world);
@@ -140,6 +152,19 @@ impl Sim {
             self.erosion.step(&mut self.world, &self.hydro);
         }
         self.world.tick += 1;
+        // Eustasy: the sea relaxes toward its target fraction of the
+        // live crust — whatever uplift, deposition, and burial do, the
+        // ocean keeps its share and coasts transgress and regress
+        // slowly. Without it, the uplift→erosion→coastal-deposition
+        // conveyor steadily filled the ocean (below_sea 1600 -> 371).
+        if self.world.tick % EUSTASY_REFRESH == 0 {
+            let mut sorted = self.world.elevation.clone();
+            let idx = ((sorted.len() as f64 * SEA_FRACTION) as usize)
+                .min(sorted.len() - 1);
+            select_nth(&mut sorted, idx);
+            let target = sorted[idx];
+            self.world.sea_level += (target - self.world.sea_level) * 0.1;
+        }
         if self.enabled(SimLayer::Hydro) {
             self.hydro.classify_if_due(&self.world);
         }
@@ -243,9 +268,10 @@ mod tests {
 
     #[test]
     fn erosion_conserves_solid_mass() {
-        // Hydraulic + talus erosion only move material between elevation
-        // and sediment. Tectonics is an external source/sink by design —
-        // disabled here so the conservation bound is tight.
+        // Hydraulic + talus erosion move material between elevation
+        // and sediment; what reaches the deep sea is buried (the
+        // rock-cycle sink, by design) — bounded loss, not a leak.
+        // Tectonics disabled so uplift is out of the picture.
         let options = PocketWorldOptionsBuilder::default()
             .seed(17u32)
             .disabled(vec![SimLayer::Tectonics])
@@ -260,8 +286,55 @@ mod tests {
         let after: f32 = t.world.elevation.iter().sum::<f32>()
             + t.erosion.sediment.iter().sum::<f32>();
         assert!(
-            (after - before).abs() < 0.5,
+            (after - before).abs() < 15.0,
             "erosion leaked solid mass: {before} -> {after}"
+        );
+    }
+
+    #[test]
+    fn springs_ride_their_mountains() {
+        use crate::pocketworld::effect::PocketWorldOptionsBuilder;
+
+        // Erosion-round lock: headwaters advect with their plates, so
+        // they stay on high ground as the crust drifts and orogeny
+        // rebuilds what erosion wears down (rivers wax and wane with
+        // their mountains — probed 2026-10-12: relief stable, land
+        // water ~zero, no flood cycles).
+        let options = PocketWorldOptionsBuilder::default()
+            .seed(42u32)
+            .disabled(vec![SimLayer::Climate, SimLayer::Life])
+            .build()
+            .unwrap();
+        let mut t = Sim::new(&options, (100, 40));
+        for _ in 0..2000 {
+            t.tick();
+        }
+        // A spring may drown between refreshes (crust subsides, the
+        // sea itself moves with eustasy); give it relocation windows
+        // before asserting.
+        for _ in 0..200 {
+            t.tick();
+        }
+        let elevs: Vec<f32> = t
+            .hydro
+            .springs
+            .iter()
+            .map(|&(sx, sy)| {
+                let x = sx.rem_euclid(t.world.w as f32) as usize;
+                let y = (sy.clamp(0.0, (t.world.h - 1) as f32)) as usize;
+                t.world.elevation[y * t.world.w + x]
+            })
+            .collect();
+        let mean = elevs.iter().sum::<f32>() / elevs.len() as f32;
+        eprintln!("SPRINGS mean_elev={mean:.3} of {}", elevs.len());
+        assert!(
+            mean > t.world.sea_level + 0.1,
+            "springs left the highlands: mean {mean:.3} vs sea {}",
+            t.world.sea_level
+        );
+        assert!(
+            elevs.iter().all(|e| *e > t.world.sea_level),
+            "a spring drowned: {elevs:?}"
         );
     }
 

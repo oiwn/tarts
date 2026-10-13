@@ -6,18 +6,23 @@
 //! elevation, time).
 
 use crate::pocketworld::hydro::WET_MIN;
-use crate::pocketworld::world::World;
+use crate::pocketworld::world::{World, sample_bilinear};
 use rand::RngExt;
 use rand::rngs::StdRng;
 
 // Deliberately untuned — the user dials it in visually.
 /// Ocean evaporation fills a cloud-spawn budget; this is the fill per tick.
 const CLOUD_SPAWN: f32 = 0.5;
-/// New-cloud water content and the fleet size cap.
-const CLOUD_WATER: f32 = 0.35;
+/// New-cloud water content and the fleet size cap. Raised 2026-10-12:
+/// fronts should cross continents and oceans, not die at the coast.
+const CLOUD_WATER: f32 = 0.42;
 const CLOUD_MAX: usize = 250;
-/// Fraction of a cloud rained out per tick over land.
-const CLOUD_RAIN: f32 = 0.06;
+/// Fraction of a cloud rained out per tick over land. Lowered
+/// 2026-10-12 (twice): at 0.06 fronts died within ~30 ticks, at 0.035
+/// still mid-continent — clouds now cross whole landmasses raining.
+const CLOUD_RAIN: f32 = 0.02;
+/// Smoothing for the rendered cloud-coverage field (per tick).
+const COVER_EMA: f32 = 0.3;
 /// Extra rain-out multiplier when mountains block the path.
 const OROGRAPHIC: f32 = 2.0;
 /// Particles per spawned cloud front (a visible traveling system).
@@ -25,22 +30,49 @@ const CLOUD_FRONT: usize = 11;
 /// Elevation above sea level that counts as a mountain wall.
 const MOUNTAIN_WALL: f32 = 0.22;
 /// Soil-humidity memory: written by rain, decays each tick.
-const HUMID_DECAY: f32 = 0.001;
-/// Wind slowdown factor at a full mountain wall.
-const WIND_BLOCK: f32 = 0.35;
+const HUMID_DECAY: f32 = 0.0007;
+// Winds (2026-10-12 round): a simulated momentum field — thermal band
+// forcing, Coriolis turning from the world's rotation, orographic and
+// land drag, turbulence, and self-advection. Weather (meandering jets,
+// eddies, front pile-ups) emerges; clouds ride the real flow instead
+// of drawn-on latitude bands.
+/// Relaxation toward the thermal-wind bands (per tick). Must outpace
+/// meridional mixing, or the circulation bands smear into mush.
+const WIND_RELAX: f32 = 0.08;
+/// Coriolis turning strength, scaled by sin(latitude).
+const WIND_CORIOLIS: f32 = 0.08;
+/// Turbulence injected per tick (slow evolving noise field). The
+/// meridional part is damped — it mixes the bands away.
+const WIND_JITTER: f32 = 0.12;
+const WIND_JITTER_V: f32 = 0.05;
+/// Surface drag over land, and extra orographic drag at a full wall.
+const WIND_DRAG_LAND: f32 = 0.004;
+const WIND_DRAG_WALL: f32 = 0.35;
+/// Speed clamp (cells/tick) — stability for the self-advection.
+const WIND_MAX: f32 = 1.4;
 /// Snow melts above this temperature, at this rate (scaled by temperature).
 const SNOW_MELT_T: f32 = 0.05;
 const SNOW_MELT: f32 = 0.0015;
+/// Polar precipitation rate: the cold zones accumulate steadily —
+/// the cloud fleet is a sketch of water transport and never reliably
+/// reaches the poles (probed: zero clouds past |lat| 0.5), so the
+/// polar cell delivers its own snowfall, scaling with coldness.
+const POLAR_SNOW: f32 = 0.0006;
+/// Sublimation: snow loss proportional to mass, everywhere. With the
+/// polar deposit this gives a stable cap equilibrium (~0.4 ×
+/// coldness) — without it, glaciers monotonically swallowed the poles.
+const SNOW_SUBLIME: f32 = 0.0015;
 /// Year length in seconds of screen time.
 const YEAR: f64 = 120.0;
 /// Seasonal temperature anomaly amplitude (hemisphere-antisymmetric sine).
 const SEASON_AMPLITUDE: f32 = 0.15;
 /// Temperature model: equator value, pole gradient, elevation lapse.
+/// Pole drop deepened 2026-10-12: at 1.2 the poles hovered near 0 and
+/// snowfall (temp < 0) essentially never happened — caps were rendered
+/// frost, not accumulated snow.
 const TEMP_EQUATOR: f32 = 1.0;
-const TEMP_POLE_DROP: f32 = 1.2;
+const TEMP_POLE_DROP: f32 = 1.6;
 const TEMP_LAPSE: f32 = 0.6;
-/// Below this temperature the biome view paints snow on high ground.
-pub(crate) const TEMP_SNOW: f32 = 0.15;
 
 /// A drifting rain cloud particle: position and water content.
 pub(crate) struct Cloud {
@@ -60,10 +92,17 @@ pub(crate) struct Climate {
     pub(crate) snow: Vec<f32>,
     /// Per-cell cloud coverage from the last tick (for rendering).
     pub(crate) cloud_cover: Vec<f32>,
+    /// Slow average of cloud coverage — the render field. Particles
+    /// are speckle; the average is what fronts are made of.
+    pub(crate) cover_ema: Vec<f32>,
     /// The cloud fleet — 1-cell particles; formations emerge from the wind.
     pub(crate) clouds: Vec<Cloud>,
     /// Ocean-evaporation budget toward spawning the next cloud.
     pub(crate) spawn_budget: f32,
+    /// Simulated wind field, eastward component (cells/tick).
+    pub(crate) wind_u: Vec<f32>,
+    /// Simulated wind field, northward component (cells/tick).
+    pub(crate) wind_v: Vec<f32>,
 }
 
 impl Climate {
@@ -74,9 +113,108 @@ impl Climate {
             rain: vec![0.0; cells],
             snow: vec![0.0; cells],
             cloud_cover: vec![0.0; cells],
+            cover_ema: vec![0.0; cells],
             clouds: Vec::new(),
             spawn_budget: 0.0,
+            wind_u: vec![0.0; cells],
+            wind_v: vec![0.0; cells],
         }
+    }
+
+    /// Initial wind condition: the analytic thermal-wind profile, so
+    /// the simulated field starts in balance instead of spinning up
+    /// from calm.
+    pub(crate) fn init_wind(&mut self, world: &World) {
+        for y in 0..world.h {
+            let lat = ((y as f32 + 0.5) / world.h.max(1) as f32) * 2.0 - 1.0;
+            let a = lat.abs();
+            let band = if a < 0.35 {
+                -1.0
+            } else if a < 0.75 {
+                1.0
+            } else {
+                -1.0
+            };
+            for x in 0..world.w {
+                let i = y * world.w + x;
+                self.wind_u[i] = band;
+                self.wind_v[i] = 0.15 * lat;
+            }
+        }
+    }
+
+    /// One wind step: self-advection (the field carries itself — jets
+    /// meander, eddies spin off), then thermal forcing toward the
+    /// general circulation, Coriolis turning from the world's
+    /// rotation, turbulence, and orographic/land drag.
+    pub(crate) fn wind_step(&mut self, world: &World) {
+        let w = world.w;
+        let h = world.h;
+        {
+            let su = self.wind_u.clone();
+            let sv = self.wind_v.clone();
+            for y in 0..h {
+                for x in 0..w {
+                    let i = y * w + x;
+                    let sx = x as f32 - self.wind_u[i];
+                    let sy = (y as f32 - self.wind_v[i]).clamp(0.0, (h - 1) as f32);
+                    self.wind_u[i] = sample_bilinear(&su, w, h, sx, sy);
+                    self.wind_v[i] = sample_bilinear(&sv, w, h, sx, sy);
+                }
+            }
+        }
+        let height = h.max(1) as f32;
+        for y in 0..h {
+            let lat = ((y as f32 + 0.5) / height) * 2.0 - 1.0;
+            let a = lat.abs();
+            let band = if a < 0.35 {
+                -1.0
+            } else if a < 0.75 {
+                1.0
+            } else {
+                -1.0
+            };
+            let u_target = band;
+            // Weak meridional drift (~Hadley-ish tilt): a slab
+            // translation here smears the bands, so keep it small.
+            let v_target = 0.05 * lat;
+            let cor = (lat * std::f32::consts::FRAC_PI_2).sin();
+            for x in 0..w {
+                let i = y * w + x;
+                let (u, v) = (self.wind_u[i], self.wind_v[i]);
+                // Mountains kill the flow — windward pile-ups, leeward
+                // rain shadows; open ocean barely drags at all.
+                let rel = (world.elevation[i] - world.sea_level).max(0.0);
+                let wall = ((rel - MOUNTAIN_WALL * 0.5) / (MOUNTAIN_WALL * 0.5))
+                    .clamp(0.0, 1.0);
+                let drag = if rel > 0.0 { WIND_DRAG_LAND } else { 0.0 }
+                    + wall * WIND_DRAG_WALL;
+                let jx = world.noise.noise_3d(
+                    x as f64 * 0.07,
+                    y as f64 * 0.07,
+                    world.time * 0.03,
+                ) as f32;
+                let jy = world.noise.noise_3d(
+                    x as f64 * 0.07 + 41.0,
+                    y as f64 * 0.07 + 17.0,
+                    world.time * 0.03,
+                ) as f32;
+                let nu = u
+                    + (u_target - u) * WIND_RELAX
+                    + cor * v * WIND_CORIOLIS
+                    + jx * WIND_JITTER;
+                let nv = v + (v_target - v) * WIND_RELAX - cor * u * WIND_CORIOLIS
+                    + jy * WIND_JITTER_V;
+                self.wind_u[i] = (nu * (1.0 - drag)).clamp(-WIND_MAX, WIND_MAX);
+                self.wind_v[i] = (nv * (1.0 - drag)).clamp(-WIND_MAX, WIND_MAX);
+            }
+        }
+    }
+
+    /// The simulated wind at a cell.
+    pub(crate) fn wind_at(&self, world: &World, x: usize, y: usize) -> (f32, f32) {
+        let i = y.min(world.h - 1) * world.w + (x % world.w);
+        (self.wind_u[i], self.wind_v[i])
     }
 
     /// Tick prologue: decay the humidity memory and clear the rain field,
@@ -131,7 +269,7 @@ impl Climate {
         // freely inside the loop.
         let mut clouds = std::mem::take(&mut self.clouds);
         for (ci, cloud) in clouds.iter_mut().enumerate() {
-            let (u, v) = wind_at(world, cloud.x as usize, cloud.y as usize);
+            let (u, v) = self.wind_at(world, cloud.x as usize, cloud.y as usize);
             // Light turbulence so particle trains meander.
             cloud.x += u + rng.random_range(-0.15..0.15);
             cloud.y += v + rng.random_range(-0.15..0.15);
@@ -152,7 +290,7 @@ impl Climate {
                 // Refill over warm water; rain on the sea is reabsorbed by
                 // the ocean (boundary condition).
                 let warm = temp.clamp(0.0, 1.0);
-                cloud.water = (cloud.water + 0.004 * warm).min(CLOUD_WATER);
+                cloud.water = (cloud.water + 0.01 * warm).min(CLOUD_WATER);
             } else {
                 // Rain the single cell below — concentrated rain is what
                 // lets rivers form. Mountain walls squeeze harder.
@@ -168,34 +306,56 @@ impl Climate {
                     self.humidity[cell] += rain;
                     self.rain[cell] = self.rain[cell].max(rain);
                 }
-                if cloud.water <= 0.02 {
+                if cloud.water <= 0.012 {
                     expired.push(ci);
                     continue;
                 }
             }
 
-            // One cell per particle; density by water content.
+            // Soft footprint: particles stamp a 3x3 blob so fronts
+            // read as cohesive bodies, not salt-and-pepper.
             let density = (cloud.water / CLOUD_WATER).clamp(0.0, 1.0);
-            self.cloud_cover[cell] = self.cloud_cover[cell].max(density);
+            let cx = cloud.x as isize;
+            let cy = cloud.y as isize;
+            for oy in -1isize..=1 {
+                let ny = cy + oy;
+                if ny < 0 || ny >= height as isize {
+                    continue;
+                }
+                for ox in -1isize..=1 {
+                    let nx = (cx + ox).rem_euclid(width as isize) as usize;
+                    let w = if ox == 0 && oy == 0 { 1.0 } else { 0.5 };
+                    let j = ny as usize * width + nx;
+                    self.cloud_cover[j] = self.cloud_cover[j].max(density * w);
+                }
+            }
         }
 
         for ci in expired.into_iter().rev() {
             clouds.remove(ci);
         }
         self.clouds = clouds;
+        // The render field: the averaged coverage is what fronts are
+        // made of.
+        for (e, c) in self.cover_ema.iter_mut().zip(self.cloud_cover.iter()) {
+            *e += (*c - *e) * COVER_EMA;
+        }
     }
 
-    /// Cryosphere: snow melts where warm, feeding the hydrosphere —
-    /// poles and winters hold water as ice, spring releases it.
+    /// Cryosphere: snow falls steadily in the cold zones (the polar
+    /// cell) and melts where warm, feeding the hydrosphere — poles and
+    /// winters hold water as ice, spring releases it.
     pub(crate) fn snowmelt(&mut self, world: &mut World) {
         let width = world.w;
         for i in 0..self.snow.len() {
-            if self.snow[i] <= 0.0 {
-                continue;
-            }
             let y = i / width;
             let temp = temp_at(world, y, i, world.time);
-            if temp > SNOW_MELT_T {
+            if self.snow[i] > 0.0 {
+                self.snow[i] *= 1.0 - SNOW_SUBLIME;
+            }
+            if temp < -0.05 {
+                self.snow[i] += POLAR_SNOW * (-temp).min(1.0);
+            } else if temp > SNOW_MELT_T && self.snow[i] > 0.0 {
                 let melt = (SNOW_MELT * (temp - SNOW_MELT_T)).min(self.snow[i]);
                 self.snow[i] -= melt;
                 world.water[i] += melt;
@@ -216,48 +376,83 @@ pub(crate) fn temp_at(world: &World, y: usize, i: usize, t: f64) -> f32 {
     TEMP_EQUATOR - TEMP_POLE_DROP * lat.abs() - TEMP_LAPSE * rel + season
 }
 
-/// Latitude-banded wind at a cell: trades / westerlies / polar
-/// easterlies, plus a slow noise swirl for meandering fronts.
-pub(crate) fn wind_at(world: &World, x: usize, y: usize) -> (f32, f32) {
-    let height = world.h.max(1) as f32;
-    let lat = ((y as f32 + 0.5) / height) * 2.0 - 1.0;
-    let a = lat.abs();
-    let band = if a < 0.35 {
-        -1.0
-    } else if a < 0.75 {
-        1.0
-    } else {
-        -1.0
-    };
-    let swirl =
-        world
-            .noise
-            .noise_3d(x as f64 * 0.1, y as f64 * 0.1, world.time * 0.05)
-            as f32;
-    let v_swirl = world.noise.noise_3d(
-        x as f64 * 0.1 + 50.0,
-        y as f64 * 0.1 + 50.0,
-        world.time * 0.05,
-    ) as f32;
-    // Mountains block the wind: flow slows toward and across high
-    // ground — clouds pile up on windward slopes and rain out there,
-    // leeward sides dry into rain shadows.
-    let width = world.w;
-    let cell = y * width + (x % width.max(1));
-    let rel = (world.elevation[cell] - world.sea_level).max(0.0);
-    let wall =
-        ((rel - MOUNTAIN_WALL * 0.5) / (MOUNTAIN_WALL * 0.5)).clamp(0.0, 1.0);
-    let factor = 1.0 - wall * (1.0 - WIND_BLOCK);
-    (
-        (band + 0.3 * swirl) * factor,
-        (0.15 * lat + 0.1 * v_swirl) * factor,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::pocketworld::sim::test_sim;
+
+    #[test]
+    fn winds_circulation_and_stability() {
+        use crate::pocketworld::effect::PocketWorldOptionsBuilder;
+        use crate::pocketworld::sim::{Sim, SimLayer};
+
+        // Simulated winds: the general circulation must hold (trades
+        // westward in the tropics, westerlies mid-latitude, polar
+        // easterlies) while the field stays bounded and meanders.
+        let options = PocketWorldOptionsBuilder::default()
+            .seed(42u32)
+            .disabled(vec![SimLayer::Life])
+            .build()
+            .unwrap();
+        let mut t = Sim::new(&options, (100, 40));
+        for _ in 0..600 {
+            t.tick();
+        }
+        let (w, h) = (t.world.w, t.world.h);
+        for y in 0..h {
+            let lat = ((y as f32 + 0.5) / h as f32) * 2.0 - 1.0;
+            let mut mean_u = 0.0f32;
+            let mut var_u = 0.0f32;
+            let mut free = 0usize;
+            // Circulation over the free flow: mountain belts locally
+            // block the wind (that's the orography working), so zonal
+            // means exclude high-wall cells.
+            for x in 0..w {
+                let i = y * w + x;
+                let rel = (t.world.elevation[i] - t.world.sea_level).max(0.0);
+                let wall = ((rel - 0.22 * 0.5) / (0.22 * 0.5)).clamp(0.0, 1.0);
+                let (u, v) = t.climate.wind_at(&t.world, x, y);
+                assert!(
+                    u.abs() <= 1.5 && v.abs() <= 1.5,
+                    "wind unstable at ({x},{y}): {u},{v}"
+                );
+                if wall < 0.5 {
+                    mean_u += u;
+                    free += 1;
+                }
+            }
+            if free < 10 {
+                continue;
+            }
+            mean_u /= free as f32;
+            for x in 0..w {
+                let (u, _) = t.climate.wind_at(&t.world, x, y);
+                var_u += (u - mean_u).powi(2);
+            }
+            let std_u = (var_u / w as f32).sqrt();
+            let a = lat.abs();
+            if a < 0.25 {
+                assert!(
+                    mean_u < -0.2,
+                    "trades missing at lat {lat:.2}: mean_u {mean_u:.2}"
+                );
+            } else if (0.4..0.7).contains(&a) {
+                assert!(
+                    mean_u > 0.2,
+                    "westerlies missing at lat {lat:.2}: mean_u {mean_u:.2}"
+                );
+                assert!(
+                    std_u > 0.1,
+                    "no meander at lat {lat:.2}: std_u {std_u:.2}"
+                );
+            } else if a > 0.85 {
+                assert!(
+                    mean_u < -0.1,
+                    "polar easterlies missing at lat {lat:.2}: mean_u {mean_u:.2}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn clouds_spawn_drift_and_carry_water() {

@@ -49,3 +49,25 @@ impl World {
         }
     }
 }
+
+/// Bilinear sample on a wrap-x, pole-clamped grid — the gather used by
+/// all semi-Lagrangian advection (crust, wind).
+pub(crate) fn sample_bilinear(
+    field: &[f32],
+    w: usize,
+    h: usize,
+    x: f32,
+    y: f32,
+) -> f32 {
+    let x = x.rem_euclid(w as f32);
+    let y = y.clamp(0.0, (h - 1) as f32);
+    let x0 = x.floor() as usize;
+    let y0 = y.floor() as usize;
+    let x1 = (x0 + 1) % w;
+    let y1 = (y0 + 1).min(h - 1);
+    let fx = x - x0 as f32;
+    let fy = y - y0 as f32;
+    let top = field[y0 * w + x0] * (1.0 - fx) + field[y0 * w + x1] * fx;
+    let bot = field[y1 * w + x0] * (1.0 - fx) + field[y1 * w + x1] * fx;
+    top * (1.0 - fy) + bot * fy
+}

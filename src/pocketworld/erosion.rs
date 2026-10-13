@@ -7,16 +7,19 @@ use crate::pocketworld::world::World;
 
 // Deliberately untuned — visual pass comes after the whole system runs;
 // adjust with the map on screen, not blind.
-/// Suspended-load carrying capacity per unit of outflux.
-const EROSION_CAPACITY: f32 = 0.4;
+/// Suspended-load carrying capacity per unit of outflux. Lowered
+/// 2026-10-12 (relief round): with halved uplift, the old rate ground
+/// ranges flat over a long session.
+const EROSION_CAPACITY: f32 = 0.28;
 /// Fraction of the capacity gap eroded/deposited per tick.
 const ERODE_K: f32 = 0.3;
 const DEPOSIT_K: f32 = 0.5;
 /// How much of a cell's sediment rides the outflow each tick.
 const SEDIMENT_TRANSPORT: f32 = 0.5;
-/// Talus (dry slope) erosion: height difference past the angle of repose.
+/// Talus (dry slope) erosion: height difference past the angle of
+/// repose. Rate lowered with the relief round — slow the grinding.
 const TALUS_SLOPE: f32 = 0.06;
-const TALUS_RATE: f32 = 0.2;
+const TALUS_RATE: f32 = 0.12;
 
 pub(crate) struct Erosion {
     /// Runtime enable flag (composed from `TerrainOptions`).
@@ -78,9 +81,17 @@ impl Erosion {
 
     /// Hydraulic erosion: carrying capacity grows with flow; the gap between
     /// capacity and held sediment erodes bedrock, the surplus deposits.
-    /// Drying cells drop their whole load (floodplains, deltas).
+    /// Drying cells drop their whole load (floodplains, deltas). The
+    /// deep sea is a sediment SINK — river loads arriving below sea
+    /// level are buried and return to the mantle (the rock cycle's
+    /// closing half; without it, deposition accreted the ocean floor
+    /// into land: the ocean halved within 900 ticks).
     fn erode(&mut self, world: &mut World, hydro: &Hydro) {
         for i in 0..world.elevation.len() {
+            if world.elevation[i] < world.sea_level {
+                self.sediment[i] = 0.0; // buried at sea
+                continue;
+            }
             if world.water[i] > WET_MIN {
                 let flow: f32 = hydro.flux[i].iter().filter(|f| **f > 0.0).sum();
                 let capacity = EROSION_CAPACITY * flow;
