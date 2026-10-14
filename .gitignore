@@ -4,6 +4,7 @@
 # AI
 .claude/
 .codex/
+.agents/skills/specdev/
 
 # profiling/coverage garbage
 *.profraw
