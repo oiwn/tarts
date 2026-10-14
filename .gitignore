@@ -1,4 +1,9 @@
+# cargo
 /target
+
+# AI
+.claude/
+.codex/
 
 # profiling/coverage garbage
 *.profraw

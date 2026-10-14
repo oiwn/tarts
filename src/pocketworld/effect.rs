@@ -82,6 +82,7 @@ impl TerminalEffect for PocketWorld {
     fn views(&self) -> Vec<&'static str> {
         vec![
             "biome", "plates", "height", "hydro", "temp", "wind", "humidity",
+            "aquifer",
         ]
     }
 
@@ -94,6 +95,7 @@ impl TerminalEffect for PocketWorld {
             "temp" => Layer::Temp,
             "wind" => Layer::Wind,
             "humidity" => Layer::Humidity,
+            "aquifer" => Layer::Aquifer,
             _ => return,
         };
     }
@@ -207,12 +209,12 @@ mod tests {
     #[test]
     fn set_view_maps_names() {
         let mut t = pocketworld(31, 60, 20);
-        assert_eq!(t.views().len(), 7);
-        t.set_view("height");
-        assert_eq!(t.renderer.view, Layer::Height);
+        assert_eq!(t.views().len(), 8);
+        t.set_view("aquifer");
+        assert_eq!(t.renderer.view, Layer::Aquifer);
         // Unknown names are ignored, not fatal.
         t.set_view("nonsense");
-        assert_eq!(t.renderer.view, Layer::Height);
+        assert_eq!(t.renderer.view, Layer::Aquifer);
     }
 
     #[test]
@@ -232,6 +234,7 @@ mod tests {
             Layer::Temp,
             Layer::Wind,
             Layer::Humidity,
+            Layer::Aquifer,
             Layer::Biome,
         ] {
             t.handle_key(next);
@@ -242,6 +245,7 @@ mod tests {
         }
         // Backward: j walks the cycle in reverse.
         for expected in [
+            Layer::Aquifer,
             Layer::Humidity,
             Layer::Wind,
             Layer::Temp,

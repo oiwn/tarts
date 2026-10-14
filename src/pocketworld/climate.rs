@@ -29,8 +29,12 @@ const OROGRAPHIC: f32 = 2.0;
 const CLOUD_FRONT: usize = 11;
 /// Elevation above sea level that counts as a mountain wall.
 const MOUNTAIN_WALL: f32 = 0.22;
-/// Soil-humidity memory: written by rain, decays each tick.
-const HUMID_DECAY: f32 = 0.0007;
+/// Soil-humidity memory: written by rain, decays each tick. Lowered
+/// 2026-10-13: at 0.0007 a deposit decayed through the render gate in
+/// ~30 ticks — forests flickered with weather instead of marking
+/// climate. At 0.00025 overlapping rain trails accumulate into
+/// regional wetness (the forest belts).
+const HUMID_DECAY: f32 = 0.00025;
 // Winds (2026-10-12 round): a simulated momentum field — thermal band
 // forcing, Coriolis turning from the world's rotation, orographic and
 // land drag, turbulence, and self-advection. Weather (meandering jets,
@@ -292,19 +296,41 @@ impl Climate {
                 let warm = temp.clamp(0.0, 1.0);
                 cloud.water = (cloud.water + 0.01 * warm).min(CLOUD_WATER);
             } else {
-                // Rain the single cell below — concentrated rain is what
-                // lets rivers form. Mountain walls squeeze harder.
+                // Rain a soft 3×3 footprint — the cloud is drawn three
+                // wide, and one-cell rain left 94% of the land with no
+                // moisture memory (forests rendered as rain-trail
+                // shadows, 2026-10-13). The center keeps half: channels
+                // still concentrate under the trail.
                 let rel = world.elevation[cell] - world.sea_level;
                 let wall = if rel > MOUNTAIN_WALL { OROGRAPHIC } else { 1.0 };
                 let rain = cloud.water * CLOUD_RAIN * wall;
                 cloud.water -= rain;
-                if temp < 0.0 {
-                    // Cryosphere: cold cells take snow instead of water.
-                    self.snow[cell] += rain;
-                } else {
-                    world.water[cell] += rain;
-                    self.humidity[cell] += rain;
-                    self.rain[cell] = self.rain[cell].max(rain);
+                let cx = cloud.x as isize;
+                let cy = cloud.y as isize;
+                for oy in -1isize..=1 {
+                    for ox in -1isize..=1 {
+                        let ny = cy + oy;
+                        if ny < 0 || ny >= height as isize {
+                            continue;
+                        }
+                        let nx = (cx + ox).rem_euclid(width as isize) as usize;
+                        let j = ny as usize * width + nx;
+                        let w = match (ox, oy) {
+                            (0, 0) => 4.0,
+                            (0, _) | (_, 0) => 1.0,
+                            _ => 0.5,
+                        };
+                        let share = rain * w / 8.0;
+                        let temp_j = temp_at(world, j / width, j, world.time);
+                        if temp_j < 0.0 {
+                            // Cryosphere: cold cells take snow instead.
+                            self.snow[j] += share;
+                        } else {
+                            world.water[j] += share;
+                            self.humidity[j] += share;
+                            self.rain[j] = self.rain[j].max(share);
+                        }
+                    }
                 }
                 if cloud.water <= 0.012 {
                     expired.push(ci);

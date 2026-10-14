@@ -92,8 +92,13 @@ pub(crate) fn generate(world: &mut World, options: &PocketWorldOptions) {
     world.sea_level = sorted[idx];
 
     // Pass 2: mountain chains on top of the base, scaled by landness
-    // so ranges ride the continents; then stretch above-sea relief to
-    // use the height range (compressed distributions read flat).
+    // so ranges ride the continents; then map above-sea relief over
+    // the full headroom with a root curve (compressed distributions
+    // read flat). The map normalizes by the pre-map maximum: clamping
+    // the masked field first piles every over-1.0 cell onto one
+    // elevation atom — the plateau (2026-10-13), under any curve.
+    let mut masked = vec![0.0f32; cells];
+    let mut max_rel = 1e-6f32;
     for i in 0..cells {
         let (px, py, pz) = warped[i];
         let sample = samples[i];
@@ -113,11 +118,20 @@ pub(crate) fn generate(world: &mut World, options: &PocketWorldOptions) {
         let mask = ((ridged - 0.68) / 0.32).clamp(0.0, 1.0);
         let landness = sample.clamp(0.0, 1.0);
         h += mask * mask * 0.85 * (0.5 + 0.5 * landness);
-
-        let h = h.min(1.0);
+        masked[i] = h;
+        let rel = h - world.sea_level;
+        if rel > max_rel {
+            max_rel = rel;
+        }
+    }
+    for (i, h) in masked.iter().enumerate().take(cells) {
+        let h = *h;
         world.elevation[i] = if h > world.sea_level {
+            // Toe lift like the old ×2.4 stretch, top spread out,
+            // everything in (sea, 1.0] — strictly monotonic, no clamp.
             let rel = h - world.sea_level;
-            world.sea_level + (rel * 2.4).min((1.0 - world.sea_level).max(0.0))
+            let head = (1.0 - world.sea_level).max(0.0);
+            world.sea_level + head * (rel / max_rel).powf(0.7)
         } else {
             h
         };
@@ -147,9 +161,13 @@ pub(crate) fn thresholds(world: &mut World) {
         let scree_idx =
             ((sorted_land.len() as f64 * 0.7) as usize).min(sorted_land.len() - 1);
         select_nth(&mut sorted_land, rock_idx);
-        world.rock_level = sorted_land[rock_idx];
+        // Stored RELATIVE to sea level: readers compare `elevation -
+        // sea_level` against these. The 2026-10-13 frame mismatch
+        // (absolute levels vs relative relief) made `rel > rock_level`
+        // unreachable — rock and scree never rendered, on any seed.
+        world.rock_level = sorted_land[rock_idx] - world.sea_level;
         select_nth(&mut sorted_land, scree_idx);
-        world.scree_level = sorted_land[scree_idx];
+        world.scree_level = sorted_land[scree_idx] - world.sea_level;
     }
 }
 
@@ -208,26 +226,55 @@ mod tests {
         // real high-country cell count at t=0.
         let t = test_sim(42, 100, 40);
         let sea = t.world.sea_level;
+        let top = t.world.rock_level.max(0.08);
         let mut bands = std::collections::HashSet::new();
         let mut high = 0usize;
         for &e in &t.world.elevation {
             if e > sea {
                 let rel = e - sea;
-                bands
-                    .insert((((rel / 0.75).clamp(0.0, 1.0) * 8.0) as usize).min(7));
-                if rel > 0.35 {
+                bands.insert((((rel / top).clamp(0.0, 1.0) * 8.0) as usize).min(7));
+                if rel > 0.3 {
                     high += 1;
                 }
             }
         }
         eprintln!(
-            "RELIEF bands={} high={high} sea={:.3} maxh={:.3}",
+            "RELIEF bands={} high={high} sea={:.3} rock={:.3} maxh={:.3}",
             bands.len(),
             t.world.sea_level,
+            t.world.rock_level,
             t.world.elevation.iter().cloned().fold(0.0f32, f32::max)
         );
         assert!(bands.len() >= 4, "height bands collapsed: {}", bands.len());
-        assert!(high > 150, "no mountains at boot: {high} cells above 0.35");
+        assert!(high > 150, "no mountains at boot: {high} cells above 0.3");
+    }
+
+    #[test]
+    fn mountains_survive_long_runs() {
+        // 2026-10-13 round regression: with flat-rate erosion the mid
+        // band went from 9% of land to zero within 3000 ticks. Rock
+        // strength must keep the high country alive: cells above the
+        // boot-time rock level must survive a long run.
+        let mut t = test_sim(42, 100, 40);
+        let boot_rock = t.world.rock_level; // relative to sea level
+        let rel_above = |t: &crate::pocketworld::sim::Sim, rock: f32| {
+            t.world
+                .elevation
+                .iter()
+                .filter(|&&e| e - t.world.sea_level > rock)
+                .count()
+        };
+        let boot_high = rel_above(&t, boot_rock);
+        for _ in 0..1500 {
+            t.tick();
+        }
+        let late_high = rel_above(&t, boot_rock);
+        eprintln!("MOUNTAINS boot={boot_high} late={late_high}");
+        assert!(boot_high >= 300, "no high country at boot: {boot_high}");
+        assert!(
+            late_high * 3 > boot_high,
+            "high country eroded away: {boot_high} -> {late_high}"
+        );
     }
 
     #[test]

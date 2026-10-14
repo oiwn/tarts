@@ -25,6 +25,18 @@ const PIPE_DAMPING: f32 = 0.85;
 /// Pipe sub-steps per tick, for stability.
 const PIPE_SUBSTEPS: usize = 2;
 
+// Aquifer (look 2b, 2026-10-14): the water table as vegetation
+// moisture, independent of rain. Lowlands near sea level hold
+// groundwater; rivers and lakes charge their banks.
+/// Elevation band above sea level that holds a water table. Deepened
+/// 2026-10-14 (living-lowlands round): 0.12 starved the forests — the
+/// user wants woodland to own the wet lowlands.
+const AQUIFER_DEPTH: f32 = 0.2;
+/// Charge of cells carrying surface water (river/lake banks).
+const AQUIFER_BANK: f32 = 0.8;
+/// Relaxation toward the target per tick — water tables move slowly.
+const AQUIFER_RELAX: f32 = 0.004;
+
 /// Water depth above which a cell counts as water for classification.
 pub(crate) const WET_MIN: f32 = 0.004;
 /// Flux magnitude above which a wet cell counts as a river.
@@ -77,6 +89,23 @@ impl Hydro {
             water_ema: vec![0.0; cells],
             class: vec![0; cells],
             springs: Vec::new(),
+        }
+    }
+
+    /// Seed the water table at generation: lowlands near sea level
+    /// hold groundwater from day one (no slow boot-up charge).
+    pub(crate) fn init_aquifers(&self, world: &mut World) {
+        for i in 0..world.aquifer.len() {
+            world.aquifer[i] = aquifer_target(world, i);
+        }
+    }
+
+    /// One tick: relax the water table toward its target — the table
+    /// follows the terrain as it erodes and drifts, slowly.
+    pub(crate) fn charge_aquifers(&self, world: &mut World) {
+        for i in 0..world.aquifer.len() {
+            let target = aquifer_target(world, i);
+            world.aquifer[i] += (target - world.aquifer[i]) * AQUIFER_RELAX;
         }
     }
 
@@ -289,7 +318,7 @@ impl Hydro {
     }
 
     /// Lazy classification refresh, every `CLASS_REFRESH` ticks.
-    pub(crate) fn classify_if_due(&mut self, world: &World) {
+    pub(crate) fn classify_if_due(&mut self, world: &mut World) {
         if world.tick % CLASS_REFRESH == 0 {
             self.refresh_classification(world);
         }
@@ -297,7 +326,7 @@ impl Hydro {
 
     /// Ocean = the largest 4-connected water body (wrap on x). Smaller
     /// flooded depressions stay unflagged and render as lakes.
-    pub(crate) fn refresh_classification(&mut self, world: &World) {
+    pub(crate) fn refresh_classification(&mut self, world: &mut World) {
         let width = world.w;
         let height = world.h;
         self.class.iter_mut().for_each(|c| *c &= !OCEAN);
@@ -341,7 +370,54 @@ impl Hydro {
                 self.class[i] |= OCEAN;
             }
         }
+
+        // Continentality: BFS distance from the sea over land (wrap
+        // on x, poles bound). The aquifer fades with it — wet coasts,
+        // dry interiors — so the hot belt gets its jungle → savanna →
+        // desert rings instead of one uniform biome (2026-10-14).
+        // Rivers and lakes keep charging their banks un-faded: green
+        // corridors through the arid interior.
+        world.dist_sea.fill(u16::MAX);
+        let mut queue = std::collections::VecDeque::new();
+        for i in 0..self.class.len() {
+            if self.class[i] & OCEAN != 0 {
+                world.dist_sea[i] = 0;
+                queue.push_back(i);
+            }
+        }
+        while let Some(i) = queue.pop_front() {
+            let (x, y) = (i % width, i / width);
+            let d = world.dist_sea[i];
+            for (dx, dy) in [(-1isize, 0), (1, 0), (0, -1), (0, 1)] {
+                let ny = y as isize + dy;
+                if ny < 0 || ny >= height as isize {
+                    continue;
+                }
+                let nx = (x as isize + dx).rem_euclid(width as isize) as usize;
+                let j = ny as usize * width + nx;
+                if world.dist_sea[j] > d + 1 {
+                    world.dist_sea[j] = d + 1;
+                    queue.push_back(j);
+                }
+            }
+        }
     }
+}
+
+/// The water-table target for one cell: high near sea level, full
+/// under surface water (river/lake banks), zero up the mountains.
+/// The elevation term fades with distance from the sea — interiors
+/// run dry (continentality) while river corridors stay charged.
+fn aquifer_target(world: &World, i: usize) -> f32 {
+    let rel = world.elevation[i] - world.sea_level;
+    let fade = (-(world.dist_sea[i].min(80) as f32) / 5.0).exp();
+    let table = ((AQUIFER_DEPTH - rel) / AQUIFER_DEPTH).clamp(0.0, 1.0) * fade;
+    let bank = if rel >= 0.0 && world.water[i] > WET_MIN {
+        AQUIFER_BANK
+    } else {
+        0.0
+    };
+    table.max(bank)
 }
 
 #[cfg(test)]

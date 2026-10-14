@@ -21,6 +21,16 @@ const SEDIMENT_TRANSPORT: f32 = 0.5;
 const TALUS_SLOPE: f32 = 0.06;
 const TALUS_RATE: f32 = 0.12;
 
+/// Rock strength at a cell: 1 at sea level → 0.15 at the rock level.
+/// The high country resists erosion, so ranges persist instead of
+/// being ground to the plain (2026-10-13 baseline: the mid band went
+/// 9% -> 0 of land within 3000 ticks with flat-rate erosion).
+fn strength(world: &World, i: usize) -> f32 {
+    let top = world.rock_level.max(0.08);
+    let rel = (world.elevation[i] - world.sea_level).clamp(0.0, top);
+    1.0 - 0.85 * (rel / top)
+}
+
 pub(crate) struct Erosion {
     /// Runtime enable flag (composed from `TerrainOptions`).
     pub(crate) on: bool,
@@ -97,7 +107,8 @@ impl Erosion {
                 let capacity = EROSION_CAPACITY * flow;
                 let s = self.sediment[i];
                 if capacity > s {
-                    let erode = ((capacity - s) * ERODE_K).min(0.002);
+                    let erode =
+                        ((capacity - s) * ERODE_K * strength(world, i)).min(0.002);
                     world.elevation[i] -= erode;
                     self.sediment[i] += erode;
                 } else {
@@ -132,7 +143,10 @@ impl Erosion {
                     let j = ny as usize * width + nx;
                     let diff = world.elevation[i] - world.elevation[j];
                     if diff > TALUS_SLOPE {
-                        let move_m = (diff - TALUS_SLOPE) * TALUS_RATE * 0.25;
+                        let move_m = (diff - TALUS_SLOPE)
+                            * TALUS_RATE
+                            * 0.25
+                            * strength(world, i);
                         world.elevation[i] -= move_m;
                         world.elevation[j] += move_m;
                     }

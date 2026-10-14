@@ -28,6 +28,7 @@ pub(crate) enum Layer {
     Temp,
     Wind,
     Humidity,
+    Aquifer,
 }
 
 impl Layer {
@@ -39,13 +40,15 @@ impl Layer {
             Layer::Hydro => Layer::Temp,
             Layer::Temp => Layer::Wind,
             Layer::Wind => Layer::Humidity,
-            Layer::Humidity => Layer::Biome,
+            Layer::Humidity => Layer::Aquifer,
+            Layer::Aquifer => Layer::Biome,
         }
     }
 
     pub(crate) fn prev(self) -> Self {
         match self {
-            Layer::Biome => Layer::Humidity,
+            Layer::Biome => Layer::Aquifer,
+            Layer::Aquifer => Layer::Humidity,
             Layer::Humidity => Layer::Wind,
             Layer::Wind => Layer::Temp,
             Layer::Temp => Layer::Hydro,
@@ -56,11 +59,15 @@ impl Layer {
     }
 }
 
-/// Display state: which layer view is on screen, and whether the
-/// legend overlay is showing.
+/// Display state: which layer view is on screen, whether the legend
+/// overlay is showing, and the per-cell land-tier memory that keeps
+/// mountain band edges from flickering.
 pub(crate) struct Renderer {
     pub(crate) view: Layer,
     pub(crate) legend: bool,
+    /// Last land tier per cell (0 lowland, 1 scree, 2 rock) for
+    /// hysteresis at the tier thresholds.
+    pub(crate) sticky: Vec<u8>,
 }
 
 impl Renderer {
@@ -68,12 +75,13 @@ impl Renderer {
         Self {
             view: Layer::Biome,
             legend: false,
+            sticky: Vec::new(),
         }
     }
 
     /// Glyph + color for one cell under the active view.
     pub(crate) fn classify(
-        &self,
+        &mut self,
         sim: &Sim,
         x: usize,
         y: usize,
@@ -85,7 +93,8 @@ impl Renderer {
             Layer::Temp => temp_view(&sim.world, x, y),
             Layer::Wind => wind_view(&sim.climate, &sim.world, x, y),
             Layer::Humidity => humidity_view(&sim.climate, sim.world.w, x, y),
-            Layer::Biome => biome_view(sim, x, y),
+            Layer::Aquifer => aquifer_view(&sim.world, x, y),
+            Layer::Biome => biome_view(self, sim, x, y),
         }
     }
 
@@ -176,28 +185,55 @@ pub(crate) fn legend_rows() -> Vec<(char, &'static str)> {
 /// Biome view (the default). Priority (top wins): rain on land → cloud
 /// → water → land biomes. Rain never draws over the sea; clouds draw
 /// over everything (they are the visible sky). Fire burns over biomes.
-fn biome_view(sim: &Sim, x: usize, y: usize) -> (char, style::Color) {
+fn biome_view(
+    renderer: &mut Renderer,
+    sim: &Sim,
+    x: usize,
+    y: usize,
+) -> (char, style::Color) {
     let world = &sim.world;
     let width = world.w;
     let i = y * width + x;
     let d = world.water[i];
     let rel = world.elevation[i] - world.sea_level;
 
-    let dry_land = d <= RENDER_WET_MIN;
-    if sim.climate.rain[i] > 1e-5
-        && dry_land
-        && (x + y + (world.time * 6.0) as usize) % 3 == 0
-    {
-        let glyph = if (x + y + (world.time * 6.0) as usize) % 2 == 0 {
-            '|'
-        } else {
-            '⁄'
-        };
-        return (glyph, rgb(170, 200, 230));
-    }
+    // No rain animation (user, 2026-10-14): rain still falls in the
+    // sim — it feeds rivers, snow, and humidity — but it renders as
+    // nothing. The flickering `|`/`⁄` glyphs read as noise, and the
+    // 3×3 footprint made them wallpaper.
 
-    let base = biome_base(sim, x, y, i, d, rel);
+    if renderer.sticky.len() != world.w * world.h {
+        renderer.sticky.resize(world.w * world.h, 0);
+    }
+    let tier = sticky_tier(&mut renderer.sticky, world, i, rel);
+
+    let base = biome_base(sim, x, y, i, d, rel, tier);
     cloud_overlay(sim, i, base)
+}
+
+/// Land tier with hysteresis: 0 lowland, 1 scree, 2 rock. Erosion and
+/// talus jitter elevation ±0.002 per tick, so cells near a threshold
+/// used to flip rock↔scree↔grass every few frames (the mountain
+/// flicker, 2026-10-14). Entering a tier takes a real margin past its
+/// threshold; leaving it takes the same margin back.
+fn sticky_tier(sticky: &mut [u8], world: &World, i: usize, rel: f32) -> u8 {
+    if world.rock_level <= 0.0 {
+        sticky[i] = 0;
+        return 0;
+    }
+    let prev = sticky[i];
+    let h_rock = ((world.rock_level - world.scree_level) * 0.3).max(0.01);
+    let h_scree = (world.scree_level * 0.3).max(0.01);
+    let tier = if rel > world.rock_level + if prev == 2 { -h_rock } else { h_rock }
+    {
+        2
+    } else if rel > world.scree_level + if prev == 1 { -h_scree } else { h_scree } {
+        1
+    } else {
+        0
+    };
+    sticky[i] = tier;
+    tier
 }
 
 /// The terrain itself (water + land biomes), before the sky is drawn
@@ -209,6 +245,7 @@ fn biome_base(
     i: usize,
     d: f32,
     rel: f32,
+    tier: u8,
 ) -> (char, style::Color) {
     let world = &sim.world;
 
@@ -239,15 +276,10 @@ fn biome_base(
     // Land: color carries elevation, glyph carries state — with a
     // per-cell jitter so bands are not flat paint.
     let temp = temp_at(world, y, i, world.time);
-    let m = sim.climate.humidity[i];
-    let height_t = (rel / 0.8).clamp(0.0, 1.0);
-    let color = match ramp_height(height_t) {
-        style::Color::Rgb { r, g, b } => {
-            let jc = jitter((r, g, b), x, y, 10);
-            rgb(jc.0, jc.1, jc.2)
-        }
-        other => other,
-    };
+    // One moisture for render and life alike (2026-10-14): the
+    // desert/savanna/swamp gates used raw rain humidity and painted
+    // arid over groundwater jungle.
+    let m = crate::pocketworld::life::moisture(&sim.climate, world, i);
 
     if sim.life.fire[i] == BURNING {
         let frames = ['✱', '❋', '✹'];
@@ -258,10 +290,10 @@ fn biome_base(
     // the terrain show through (rock must stay visible under thin
     // cover — mountains were disappearing under white).
     let s = sim.climate.snow[i];
-    if s > 0.14 {
-        let (g, col): (char, (u8, u8, u8)) = if s > 0.4 {
-            ('▓', (206, 224, 248)) // glacial sheet (top decile)
-        } else if s > 0.3 {
+    if s > 0.16 {
+        let (g, col): (char, (u8, u8, u8)) = if s > 0.36 {
+            ('▓', (206, 224, 248)) // glacial sheet
+        } else if s > 0.26 {
             ('❄', (226, 240, 251)) // heavy pack
         } else {
             ('*', (244, 249, 253)) // packed snow
@@ -275,8 +307,11 @@ fn biome_base(
         let jc = jitter(col, x, y, 8);
         return (g, rgb(jc.0, jc.1, jc.2));
     }
-    // Permanent frost caps only on genuinely cold high peaks.
-    if temp < -0.05 && world.rock_level > 0.0 && rel > world.rock_level {
+    // Permanent frost caps on high mountains — the bar sits just
+    // above freezing so every genuinely high range wears snow (lapse
+    // pulls mid-latitude peaks to ~0.0–0.1), poles hardest. Tier 2
+    // (hysteresis) keeps the cap edge from flickering.
+    if temp < 0.05 && world.rock_level > 0.0 && tier == 2 {
         let jc = jitter((198, 218, 242), x, y, 8);
         return ('*', rgb(jc.0, jc.1, jc.2));
     }
@@ -284,52 +319,89 @@ fn biome_base(
         return ('░', rgb(95, 88, 80)); // burnt ground
     }
     // Per-object variety: a stable position hash picks among narrow
-    // glyph variants so biomes are not monocultures.
-    let result = match rel {
-        r if r < 0.02 => {
-            let jc = jitter((210, 192, 138), x, y, 10);
-            (pick(x, y, &['.', ',']), rgb(jc.0, jc.1, jc.2)) // shore
-        }
-        r if world.rock_level > 0.0 && r > world.rock_level => {
-            (pick(x, y, &['▲', '∆']), color) // rock — the mountain band
-        }
-        r if world.scree_level > 0.0 && r > world.scree_level => {
-            (pick(x, y, &['°', '˚']), color) // scree
-        }
-        r if r < 0.08 && m > 0.08 => (pick(x, y, &['Ψ', 'ψ']), color), // swamp
-        _ if temp > 0.75 && m < 0.005 => {
-            (pick(x, y, &['∴', '∵']), color) // hot + dry desert
-        }
-        _ => {
-            // Vegetation stays off the mountains: the high country
-            // belongs to scree and rock.
-            let below_alpine = world.scree_level <= 0.0 || rel < world.scree_level;
-            if below_alpine && (sim.life.vegetation[i] > 0.5 || m > 0.012) {
-                // Mixed canopy: hash-picked greens make a forest read
-                // as woodland, not one flat color.
-                const CANOPY: [(u8, u8, u8); 5] = [
-                    (40, 120, 70),  // dark pine
-                    (70, 160, 90),  // forest green
-                    (110, 185, 95), // spring green
-                    (60, 170, 110), // tropical
-                    (85, 150, 105), // taiga
-                ];
-                let c = pick(y, x, &CANOPY); // swapped hash: decorrelated from the glyph
-                (pick(x, y, &['♣', '♠']), rgb(c.0, c.1, c.2)) // forest
-            } else if below_alpine {
-                let jc = jitter((148, 192, 92), x, y, 14);
-                (
-                    pick(x, y, &['"', '\'', '˙', ',']),
-                    rgb(jc.0, jc.1, jc.2), // grass: green to yellow-green
-                )
-            } else {
-                (pick(x, y, &['°', '˚']), color) // alpine: scree, not tundra grass
+    // glyph variants so biomes are not monocultures. The land tiers
+    // come from the sticky (hysteresis) resolver — raw `rel` only
+    // where the band is tiny (shore) or climate-gated.
+    let result = if rel < 0.02 {
+        let jc = jitter((210, 192, 138), x, y, 10);
+        (pick(x, y, &['.', ',']), rgb(jc.0, jc.1, jc.2)) // shore
+    } else {
+        match tier {
+            2 => {
+                // Rock reads as rock: grey faces brightening toward
+                // the peaks — bright, not sooty (2026-10-14 pass).
+                let top = (1.0 - world.sea_level - world.rock_level).max(0.05);
+                let t = ((rel - world.rock_level) / top).clamp(0.0, 1.0);
+                let jc = jitter(
+                    (
+                        (150.0 + 86.0 * t) as u8,
+                        (146.0 + 88.0 * t) as u8,
+                        (140.0 + 91.0 * t) as u8,
+                    ),
+                    x,
+                    y,
+                    10,
+                );
+                (pick(x, y, &['▲', '∆']), rgb(jc.0, jc.1, jc.2))
+                // rock — the mountain band
+            }
+            1 => {
+                let jc = jitter((196, 184, 158), x, y, 10);
+                (pick(x, y, &['°', '˚']), rgb(jc.0, jc.1, jc.2)) // scree
+            }
+            _ => {
+                // Lowland climate biomes: swamp, desert, savanna,
+                // forest, grass.
+                if rel < 0.08 && m > 0.08 {
+                    // Swamp: murky waterlogged green, its own color.
+                    let jc = jitter((92, 146, 116), x, y, 10);
+                    (pick(x, y, &['Ψ', 'ψ']), rgb(jc.0, jc.1, jc.2))
+                } else if temp > 0.65 && m < 0.03 {
+                    // Desert: hot and truly dry — deep aridity, sand.
+                    let jc = jitter((228, 206, 132), x, y, 12);
+                    (pick(x, y, &['∴', '∵']), rgb(jc.0, jc.1, jc.2))
+                } else if temp > 0.65 && m < 0.18 {
+                    // Savanna: hot with seasonal moisture — golden dry
+                    // grass ring between the jungle and the desert.
+                    let jc = jitter((204, 190, 106), x, y, 12);
+                    (pick(x, y, &[';', ':']), rgb(jc.0, jc.1, jc.2))
+                } else if sim.life.vegetation[i] > 0.35 || m > 0.05 {
+                    // Mixed canopy: hash-picked greens make a forest
+                    // read as woodland, not one flat color.
+                    const CANOPY: [(u8, u8, u8); 5] = [
+                        (58, 138, 88),   // dark pine
+                        (88, 178, 108),  // forest green
+                        (128, 203, 113), // spring green
+                        (78, 190, 130),  // tropical
+                        (103, 170, 125), // taiga
+                    ];
+                    let c = pick(y, x, &CANOPY); // swapped hash: decorrelated from the glyph
+                    (pick(x, y, &['♣', '♠']), rgb(c.0, c.1, c.2)) // forest
+                } else {
+                    // Living grass: color follows biomass and the
+                    // season — meadows green in after rain and dry out
+                    // in droughts. Both inputs move over hundreds of
+                    // ticks: visible life, no flicker (glyph stays
+                    // position-hashed).
+                    let lush = (sim.life.vegetation[i] * 1.6).clamp(0.0, 1.0) * 0.6
+                        + (temp * 2.0).clamp(0.0, 1.0) * 0.4;
+                    let c = (
+                        208.0 + (150.0 - 208.0) * lush,
+                        196.0 + (204.0 - 196.0) * lush,
+                        110.0 + (92.0 - 110.0) * lush,
+                    );
+                    let jc = jitter((c.0 as u8, c.1 as u8, c.2 as u8), x, y, 14);
+                    (
+                        pick(x, y, &['"', '\'', '˙', ',']),
+                        rgb(jc.0, jc.1, jc.2), // grass: lush ↔ dry
+                    )
+                }
             }
         }
     };
     if s > 0.02 {
         // Light snow: the terrain shows through with a cool tint.
-        let t = (s / 0.14).min(1.0) * 0.4;
+        let t = (s / 0.16).min(1.0) * 0.4;
         (result.0, mix_toward(result.1, (228, 237, 249), t))
     } else {
         result
@@ -511,8 +583,10 @@ fn height_view(world: &World, x: usize, y: usize) -> (char, style::Color) {
         }
     } else {
         // Land: eight strictly-brightening bands (luminance is height)
-        // mapped over the populated relief range.
-        let t = (rel / 0.75).clamp(0.0, 1.0);
+        // mapped over the populated relief range — the top band is the
+        // rock level (85th land percentile, refreshed with eustasy).
+        let top = world.rock_level.max(0.08);
+        let t = (rel / top).clamp(0.0, 1.0);
         match (t * 8.0) as usize {
             0 => ((48, 108, 64), '·'),
             1 => ((78, 136, 70), '·'),
@@ -565,7 +639,7 @@ fn hydro_view(
 fn temp_view(world: &World, x: usize, y: usize) -> (char, style::Color) {
     let i = y * world.w + x;
     let t = ((temp_at(world, y, i, world.time) + 0.4) / 1.4).clamp(0.0, 1.0);
-    let glyph = match t as usize {
+    let glyph = match (t * 3.0) as usize {
         0 => '░',
         1 => '▒',
         _ => '▓',
@@ -602,12 +676,35 @@ fn humidity_view(
 ) -> (char, style::Color) {
     let i = y * width + x;
     let t = (climate.humidity[i] / 0.3).min(1.0);
-    let glyph = match t as usize {
+    let glyph = match (t * 3.0) as usize {
         0 => '·',
         1 => '░',
         _ => '▒',
     };
     (glyph, ramp_humidity(t))
+}
+
+/// Aquifer view: the water table — groundwater density, wet ground
+/// blue-green, dry uplands warm tan, the sea a dim backdrop.
+fn aquifer_view(world: &World, x: usize, y: usize) -> (char, style::Color) {
+    let i = y * world.w + x;
+    if world.elevation[i] < world.sea_level {
+        return (' ', rgb(20, 28, 44)); // the sea: backdrop only
+    }
+    let a = world.aquifer[i];
+    let glyph = if a > 0.6 {
+        '▒'
+    } else if a > 0.3 {
+        '░'
+    } else {
+        '·'
+    };
+    let stops: [(f32, (u8, u8, u8)); 3] = [
+        (0.0, (176, 164, 112)), // dry tan
+        (0.5, (116, 172, 140)), // damp
+        (1.0, (58, 150, 190)),  // saturated
+    ];
+    (glyph, ramp(&stops, a.clamp(0.0, 1.0)))
 }
 
 /// Total outflux of a cell (positive pipe fluxes only).
@@ -635,18 +732,6 @@ fn river_glyph(flux: &[f32; 4]) -> char {
 /// olive → tan → grey rock → white peaks. Hard bands read as contour
 /// lines. Brightness pass (round C, 2026-10-12): luminous greens and
 /// tans, sea included.
-fn ramp_height(t: f32) -> style::Color {
-    let band = (t.clamp(0.0, 1.0) * 5.0) as usize;
-    let (r, g, b) = match band {
-        0 => (118, 178, 78),
-        1 => (156, 184, 86),
-        2 => (200, 172, 102),
-        3 => (190, 186, 178),
-        _ => (245, 248, 252),
-    };
-    style::Color::Rgb { r, g, b }
-}
-
 fn ramp_water(t: f32) -> style::Color {
     let stops: [(f32, (u8, u8, u8)); 3] = [
         (0.0, (150, 205, 235)),
@@ -715,6 +800,7 @@ fn layer_name(layer: Layer) -> &'static str {
         Layer::Temp => "TEMPERATURE",
         Layer::Wind => "WIND",
         Layer::Humidity => "HUMIDITY",
+        Layer::Aquifer => "AQUIFER (· dry, ░ damp, ▒ saturated)",
     }
 }
 
@@ -744,6 +830,44 @@ mod tests {
     use crate::pocketworld::sim::test_sim;
 
     #[test]
+    fn temp_view_shows_latitude_bands() {
+        // Regression: the glyph bands are thirds of [0,1] (`t * 3.0`),
+        // never a bare truncation that dumps everything into band 0.
+        let t = test_sim(42, 100, 40);
+        let mut renderer = Renderer::new();
+        renderer.view = Layer::Temp;
+        let mut glyphs = std::collections::HashSet::new();
+        for y in 0..40 {
+            for x in 0..100 {
+                let (ch, _) = renderer.classify(&t, x, y);
+                glyphs.insert(ch);
+            }
+        }
+        assert!(glyphs.len() >= 3, "temp view collapsed to {glyphs:?}");
+    }
+
+    #[test]
+    fn tier_hysteresis_resists_jitter() {
+        // A cell hovering at a tier threshold must not flip with
+        // ±0.002 erosion noise (the mountain flicker, 2026-10-14).
+        let mut t = test_sim(42, 20, 10);
+        t.world.rock_level = 0.30;
+        t.world.scree_level = 0.20;
+        let mut sticky = vec![0u8; t.world.w * t.world.h];
+        let i = 5usize;
+        // Entering rock takes the entry margin (0.30 + 0.03).
+        assert_eq!(sticky_tier(&mut sticky, &t.world, i, 0.335), 2);
+        // Hovering and jittering across the raw threshold stays rock.
+        assert_eq!(sticky_tier(&mut sticky, &t.world, i, 0.3001), 2);
+        assert_eq!(sticky_tier(&mut sticky, &t.world, i, 0.2995), 2);
+        // A real drop past the leave-margin lands in scree.
+        assert_eq!(sticky_tier(&mut sticky, &t.world, i, 0.265), 1);
+        assert_eq!(sticky_tier(&mut sticky, &t.world, i, 0.15), 1);
+        // And out of scree only past its leave-margin.
+        assert_eq!(sticky_tier(&mut sticky, &t.world, i, 0.10), 0);
+    }
+
+    #[test]
     fn late_world_glyph_census() {
         // After long simulation, the visible map must still read as a world:
         // water and land dominate; rain is weather, not wallpaper.
@@ -751,7 +875,7 @@ mod tests {
         for _ in 0..900 {
             t.tick();
         }
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         let mut rain = 0usize;
         let mut river = 0usize;
         let mut water = 0usize;

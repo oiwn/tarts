@@ -110,7 +110,8 @@ impl Sim {
         self.hydro.place_springs(&self.world);
         self.tectonics.generate(&self.world, &mut self.rng);
         elevation::thresholds(&mut self.world);
-        self.hydro.refresh_classification(&self.world);
+        self.hydro.refresh_classification(&mut self.world);
+        self.hydro.init_aquifers(&mut self.world);
     }
 
     /// One simulation tick: drain, weather, springs, melt, life,
@@ -164,9 +165,14 @@ impl Sim {
             select_nth(&mut sorted, idx);
             let target = sorted[idx];
             self.world.sea_level += (target - self.world.sea_level) * 0.1;
+            // Biome thresholds ride the same refresh: the render ramp
+            // and rock strength key off the living distribution, not
+            // the boot-time one.
+            elevation::thresholds(&mut self.world);
         }
         if self.enabled(SimLayer::Hydro) {
-            self.hydro.classify_if_due(&self.world);
+            self.hydro.charge_aquifers(&mut self.world);
+            self.hydro.classify_if_due(&mut self.world);
         }
     }
 }

@@ -31,6 +31,15 @@ pub(crate) struct World {
     pub(crate) rock_level: f32,
     /// Scree-band threshold (70th percentile of land heights).
     pub(crate) scree_level: f32,
+    /// Groundwater per cell [0, 1]: the water table (elevation near
+    /// sea level) plus river/lake proximity, relaxing slowly. Feeds
+    /// vegetation independently of rain (the DF-style aquifer, look
+    /// 2b) — trees follow the water table, not the clouds.
+    pub(crate) aquifer: Vec<f32>,
+    /// BFS distance from the sea over land (u16::MAX at sea cells'
+    /// start; refreshes with the ocean classification). Drives the
+    /// continental dryness of the water table.
+    pub(crate) dist_sea: Vec<u16>,
 }
 
 impl World {
@@ -46,6 +55,8 @@ impl World {
             water: vec![0.0; w * h],
             rock_level: 0.0,
             scree_level: 0.0,
+            aquifer: vec![0.0; w * h],
+            dist_sea: vec![u16::MAX; w * h],
         }
     }
 }
