@@ -146,8 +146,12 @@ pub(crate) fn generate(world: &mut World, options: &PocketWorldOptions) {
 }
 
 /// Biome thresholds as percentiles of the land height distribution, so
-/// the rock/scree bands exist on every seed.
-pub(crate) fn thresholds(world: &mut World) {
+/// the rock/scree bands exist on every seed. `relax` is how far each
+/// level moves toward its new percentile: 1.0 at world gen, a fraction
+/// at runtime — jumping straight to the fresh percentile flipped a
+/// dozen-plus cells across the rock line at once on every refresh
+/// (probed 2026-10-14: the "sudden mountains" pops).
+pub(crate) fn thresholds(world: &mut World, relax: f32) {
     let land: Vec<f32> = world
         .elevation
         .iter()
@@ -160,14 +164,29 @@ pub(crate) fn thresholds(world: &mut World) {
             ((sorted_land.len() as f64 * 0.85) as usize).min(sorted_land.len() - 1);
         let scree_idx =
             ((sorted_land.len() as f64 * 0.7) as usize).min(sorted_land.len() - 1);
-        select_nth(&mut sorted_land, rock_idx);
+        let peak_idx =
+            ((sorted_land.len() as f64 * 0.98) as usize).min(sorted_land.len() - 1);
+        let toward =
+            |level: &mut f32, target: f32| *level += (target - *level) * relax;
         // Stored RELATIVE to sea level: readers compare `elevation -
         // sea_level` against these. The 2026-10-13 frame mismatch
         // (absolute levels vs relative relief) made `rel > rock_level`
         // unreachable — rock and scree never rendered, on any seed.
-        world.rock_level = sorted_land[rock_idx] - world.sea_level;
+        select_nth(&mut sorted_land, peak_idx);
+        toward(
+            &mut world.peak_level,
+            sorted_land[peak_idx] - world.sea_level,
+        );
+        select_nth(&mut sorted_land, rock_idx);
+        toward(
+            &mut world.rock_level,
+            sorted_land[rock_idx] - world.sea_level,
+        );
         select_nth(&mut sorted_land, scree_idx);
-        world.scree_level = sorted_land[scree_idx] - world.sea_level;
+        toward(
+            &mut world.scree_level,
+            sorted_land[scree_idx] - world.sea_level,
+        );
     }
 }
 

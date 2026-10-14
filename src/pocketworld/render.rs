@@ -6,8 +6,8 @@
 
 use crate::buffer::{Buffer, Cell};
 use crate::pocketworld::climate::{Climate, temp_at};
-use crate::pocketworld::hydro::{Hydro, RIVER_FLUX, WET_MIN};
-use crate::pocketworld::life::{ASH, BURNING};
+use crate::pocketworld::hydro::{Hydro, LAKE, RIVER_FLUX, WET_MIN};
+use crate::pocketworld::life::{ASH, BURNING, FOREST_VEG};
 use crate::pocketworld::sim::Sim;
 use crate::pocketworld::tectonics::PLATE_CONV_T;
 use crate::pocketworld::world::World;
@@ -16,6 +16,20 @@ use crossterm::style;
 /// Water depth above which water renders — thin rain sheets on land stay
 /// invisible instead of painting puddle noise over whole regions.
 const RENDER_WET_MIN: f32 = 0.012;
+
+/// Smoothed ocean depth bands: below `OCEAN_OPEN` is the shallow shelf,
+/// above `OCEAN_DEEP` the deep ocean, the open sea between.
+const OCEAN_OPEN: f32 = 0.08;
+const OCEAN_DEEP: f32 = 0.2;
+
+/// Lowland biome gates (relief above sea, moisture on life's scale,
+/// derived temperature). Swamp is waterlogged ground at the coast;
+/// savanna and desert are the hot belt's dry rings.
+const SWAMP_REL: f32 = 0.05;
+const SWAMP_MOIST: f32 = 0.5;
+const DESERT_MOIST: f32 = 0.12;
+const SAVANNA_MOIST: f32 = 0.3;
+const TUNDRA_TEMP: f32 = -0.15;
 
 /// Display layers, cycled with `l` (forward) and `k` (backward) — the
 /// tuning instruments.
@@ -159,16 +173,18 @@ pub(crate) fn draw_legend(buf: &mut Buffer) {
 /// legend toggle is on.
 pub(crate) fn legend_rows() -> Vec<(char, &'static str)> {
     vec![
-        ('≈', "ocean (deep)"),
-        ('~', "sea / lake"),
+        ('≈', "deep ocean"),
+        ('≋', "open sea"),
+        ('~', "shelf sea / lake"),
         ('˃', "river, flow dir"),
-        ('.', "shore"),
-        ('"', "grass"),
-        ('♣', "forest"),
-        ('Ψ', "swamp"),
-        ('∴', "desert"),
-        ('▲', "rock"),
-        ('°', "scree"),
+        ('.', "shore  . ,"),
+        ('"', "grass  \" ' ˙ , ` ¸"),
+        ('♣', "forest  ♣ ♠ §"),
+        ('Ψ', "swamp  Ψ ψ ξ"),
+        (';', "savanna  ; :"),
+        ('∴', "desert  ∴ ∵ ∷"),
+        ('▲', "rock  ▲ ∆ ∧"),
+        ('°', "scree  ° ˚ ·"),
         ('*', "snow / frost"),
         ('❄', "snow pack"),
         ('▓', "glacier"),
@@ -176,7 +192,6 @@ pub(crate) fn legend_rows() -> Vec<(char, &'static str)> {
         ('≡', "plate convergent"),
         ('¦', "plate rift"),
         ('▒', "cloud"),
-        ('|', "rain"),
         ('✱', "fire"),
         ('░', "ash"),
     ]
@@ -194,7 +209,10 @@ fn biome_view(
     let world = &sim.world;
     let width = world.w;
     let i = y * width + x;
-    let d = world.water[i];
+    // Smoothed depth: the raw field sloshes tick to tick, and coastal
+    // cells strobed shore ↔ water across the wet gate every frame
+    // (probed 2026-10-14: ~40 coast cells per frame).
+    let d = sim.hydro.water_ema[i];
     let rel = world.elevation[i] - world.sea_level;
 
     // No rain animation (user, 2026-10-14): rain still falls in the
@@ -249,27 +267,37 @@ fn biome_base(
 ) -> (char, style::Color) {
     let world = &sim.world;
 
+    // Rivers of the drainage network: from headwaters to the coast by
+    // construction — shallow pipe water never rendered (the depth gate
+    // hid it, and it died within ~8 cells of a spring). Only a glacial
+    // sheet covers them.
+    if let Some(water) = network_river(&sim.hydro, world, i)
+        && sim.climate.snow[i] <= 0.36
+    {
+        return water;
+    }
+
+    // The sea is the sea: anything below sea level renders as ocean,
+    // decided from geometry rather than the connectivity flag, which
+    // flips as drifting coastlines change what is connected — whole
+    // basins used to strobe blue/teal on every refresh. Depth bands
+    // read the geometric depth (sea level − seafloor, slow) — the
+    // smoothed water depth still sloshed ~/≋/≈ across the band edges
+    // every frame.
+    if rel < 0.0 {
+        let depth = -rel;
+        return if depth > OCEAN_DEEP {
+            ('≈', rgb(30, 84, 148))
+        } else if depth > OCEAN_OPEN {
+            ('≋', rgb(48, 112, 170))
+        } else {
+            ('~', rgb(70, 140, 190))
+        };
+    }
     if d > RENDER_WET_MIN {
-        // The sea is the sea: any water below sea level renders as
-        // ocean, decided from the smooth fields (elevation and water
-        // advect calmly) rather than the connectivity flag, which
-        // flips as drifting coastlines change what is connected —
-        // whole basins used to strobe blue/teal on every refresh.
-        if world.elevation[i] < world.sea_level {
-            let de = sim.hydro.water_ema[i];
-            return if de > 0.15 {
-                ('≈', rgb(30, 84, 148))
-            } else {
-                ('~', rgb(70, 140, 190))
-            };
-        }
-        // Water on land: rivers where the flow is channel-like
-        // (shallow and fast), lakes where it stands deep or slow.
-        let flux_mag = flux_out(&sim.hydro.flux_ema[i]);
-        if flux_mag > RIVER_FLUX && d < 0.08 {
-            // River: motion, not a body — glyph points downstream.
-            return (river_glyph(&sim.hydro.flux_ema[i]), rgb(96, 214, 232));
-        }
+        // Standing water on land: a lake. Channels are the drainage
+        // network's (drawn above); pipe flux is nonzero on nearly all
+        // land and no longer marks rivers.
         return ('~', rgb(78, 178, 178));
     }
 
@@ -307,11 +335,12 @@ fn biome_base(
         let jc = jitter(col, x, y, 8);
         return (g, rgb(jc.0, jc.1, jc.2));
     }
-    // Permanent frost caps on high mountains — the bar sits just
-    // above freezing so every genuinely high range wears snow (lapse
-    // pulls mid-latitude peaks to ~0.0–0.1), poles hardest. Tier 2
-    // (hysteresis) keeps the cap edge from flickering.
-    if temp < 0.05 && world.rock_level > 0.0 && tier == 2 {
+    // Permanent frost caps on the summits only: tier 2 (hysteresis
+    // keeps the edge still), cold, AND in the upper half of the band
+    // between the rock line and the summit level. Capping all cold
+    // rock whitened most ranges (user objection 1, 2026-10-14).
+    let cap_line = world.rock_level + 0.5 * (world.peak_level - world.rock_level);
+    if temp < 0.05 && world.rock_level > 0.0 && tier == 2 && rel > cap_line {
         let jc = jitter((198, 218, 242), x, y, 8);
         return ('*', rgb(jc.0, jc.1, jc.2));
     }
@@ -342,30 +371,43 @@ fn biome_base(
                     y,
                     10,
                 );
-                (pick(x, y, &['▲', '∆']), rgb(jc.0, jc.1, jc.2))
+                (pick(x, y, &['▲', '∆', '∧']), rgb(jc.0, jc.1, jc.2))
                 // rock — the mountain band
             }
             1 => {
                 let jc = jitter((196, 184, 158), x, y, 10);
-                (pick(x, y, &['°', '˚']), rgb(jc.0, jc.1, jc.2)) // scree
+                (pick(x, y, &['°', '˚', '·']), rgb(jc.0, jc.1, jc.2)) // scree
             }
             _ => {
                 // Lowland climate biomes: swamp, desert, savanna,
-                // forest, grass.
-                if rel < 0.08 && m > 0.08 {
+                // forest, grass/tundra. Gates sit on the moisture scale
+                // life grows on (equilibrium canopy crosses ~0.3): the
+                // old `m > 0.05` painted forest on any trace of water,
+                // even barren frozen ground (2026-10-14: grass extinct,
+                // cold seed-42 lowlands drawn as woodland at veg 0).
+                if rel < SWAMP_REL && m > SWAMP_MOIST && temp > 0.0 {
                     // Swamp: murky waterlogged green, its own color.
                     let jc = jitter((92, 146, 116), x, y, 10);
-                    (pick(x, y, &['Ψ', 'ψ']), rgb(jc.0, jc.1, jc.2))
-                } else if temp > 0.65 && m < 0.03 {
+                    (pick(x, y, &['Ψ', 'ψ', 'ξ']), rgb(jc.0, jc.1, jc.2))
+                } else if temp > 0.65 && m < DESERT_MOIST {
                     // Desert: hot and truly dry — deep aridity, sand.
                     let jc = jitter((228, 206, 132), x, y, 12);
-                    (pick(x, y, &['∴', '∵']), rgb(jc.0, jc.1, jc.2))
-                } else if temp > 0.65 && m < 0.18 {
+                    (pick(x, y, &['∴', '∵', '∷']), rgb(jc.0, jc.1, jc.2))
+                } else if temp > 0.55 && m < SAVANNA_MOIST {
                     // Savanna: hot with seasonal moisture — golden dry
                     // grass ring between the jungle and the desert.
                     let jc = jitter((204, 190, 106), x, y, 12);
                     (pick(x, y, &[';', ':']), rgb(jc.0, jc.1, jc.2))
-                } else if sim.life.vegetation[i] > 0.35 || m > 0.05 {
+                } else if temp < TUNDRA_TEMP && sim.life.vegetation[i] <= FOREST_VEG
+                {
+                    // Tundra: cold open ground, grey-green — no canopy
+                    // grows below freezing.
+                    let jc = jitter((150, 164, 146), x, y, 10);
+                    (
+                        pick(x, y, &['"', '\'', '˙', ',', '`', '¸']),
+                        rgb(jc.0, jc.1, jc.2),
+                    )
+                } else if sim.life.vegetation[i] > FOREST_VEG {
                     // Mixed canopy: hash-picked greens make a forest
                     // read as woodland, not one flat color.
                     const CANOPY: [(u8, u8, u8); 5] = [
@@ -376,7 +418,7 @@ fn biome_base(
                         (103, 170, 125), // taiga
                     ];
                     let c = pick(y, x, &CANOPY); // swapped hash: decorrelated from the glyph
-                    (pick(x, y, &['♣', '♠']), rgb(c.0, c.1, c.2)) // forest
+                    (pick(x, y, &['♣', '♠', '§']), rgb(c.0, c.1, c.2)) // forest
                 } else {
                     // Living grass: color follows biomass and the
                     // season — meadows green in after rain and dry out
@@ -392,7 +434,7 @@ fn biome_base(
                     );
                     let jc = jitter((c.0 as u8, c.1 as u8, c.2 as u8), x, y, 14);
                     (
-                        pick(x, y, &['"', '\'', '˙', ',']),
+                        pick(x, y, &['"', '\'', '˙', ',', '`', '¸']),
                         rgb(jc.0, jc.1, jc.2), // grass: lush ↔ dry
                     )
                 }
@@ -458,7 +500,7 @@ fn cloud_overlay(
     if cover <= 0.15 {
         return base;
     }
-    let over_water = matches!(base.0, '≈' | '~');
+    let over_water = matches!(base.0, '≈' | '≋' | '~');
     if cover > 0.85 {
         return ('▓', rgb(172, 186, 204)); // storm cell, rain-loaded
     }
@@ -583,19 +625,24 @@ fn height_view(world: &World, x: usize, y: usize) -> (char, style::Color) {
         }
     } else {
         // Land: eight strictly-brightening bands (luminance is height)
-        // mapped over the populated relief range — the top band is the
-        // rock level (85th land percentile, refreshed with eustasy).
-        let top = world.rock_level.max(0.08);
-        let t = (rel / top).clamp(0.0, 1.0);
+        // mapped over the populated relief range — the top is the
+        // summit level (98th land percentile, refreshed with eustasy).
+        // Topping out at the rock level (85th) painted a third of the
+        // land white (user objection 2, 2026-10-14).
+        // Convex (t²) so white stays rare on broad orogens: strictly
+        // monotonic in height still, but the top band needs ~94% of
+        // the summit level.
+        let top = world.peak_level.max(0.08);
+        let t = (rel / top).clamp(0.0, 1.0).powi(2);
         match (t * 8.0) as usize {
             0 => ((48, 108, 64), '·'),
             1 => ((78, 136, 70), '·'),
             2 => ((110, 160, 74), '░'),
             3 => ((140, 168, 84), '░'),
             4 => ((170, 172, 100), '▒'),
-            5 => ((192, 186, 150), '▒'),
-            6 => ((214, 212, 200), '▓'),
-            _ => ((252, 252, 253), '▓'),
+            5 => ((184, 176, 138), '▒'),
+            6 => ((200, 194, 176), '▒'),
+            _ => ((252, 252, 253), '▓'), // summits only
         }
     };
 
@@ -619,6 +666,9 @@ fn hydro_view(
 ) -> (char, style::Color) {
     let i = y * world.w + x;
     let d = world.water[i];
+    if let Some(water) = network_river(hydro, world, i) {
+        return water; // the drainage network (terrain rivers + lakes)
+    }
     if d > WET_MIN {
         // Below sea level is ocean: depth ramp only, no flow vectors —
         // currents over the sea would draw as pulsing river glyphs.
@@ -715,17 +765,41 @@ fn flux_out(flux: &[f32; 4]) -> f32 {
 /// River direction glyph: the strongest outflux direction, pointing
 /// downstream.
 fn river_glyph(flux: &[f32; 4]) -> char {
-    match flux
+    let dir = flux
         .iter()
         .enumerate()
         .max_by(|a, b| a.1.total_cmp(b.1))
         .map(|(dir, _)| dir)
-    {
-        Some(0) => '˂',
-        Some(1) => '˃',
-        Some(2) => '˄',
+        .unwrap_or(3);
+    dir_glyph(dir)
+}
+
+/// Flow-direction glyph in flux order: 0 left, 1 right, 2 up, 3 down.
+fn dir_glyph(dir: usize) -> char {
+    match dir {
+        0 => '˂',
+        1 => '˃',
+        2 => '˄',
         _ => '˅',
     }
+}
+
+/// Drainage-network water at a land cell (the hydro layer's terrain
+/// rivers and river-fed lakes): glyph and color.
+fn network_river(
+    hydro: &Hydro,
+    world: &World,
+    i: usize,
+) -> Option<(char, style::Color)> {
+    let r = hydro.river[i];
+    if r == 0 || world.elevation[i] < world.sea_level {
+        return None;
+    }
+    Some(if r == LAKE {
+        ('~', rgb(78, 178, 178))
+    } else {
+        (dir_glyph(r as usize - 1), rgb(96, 214, 232))
+    })
 }
 
 /// Elevation color ramp: quantized bright bands — green lowlands →
@@ -887,7 +961,7 @@ mod tests {
                 match ch {
                     '|' | '⁄' => rain += 1,
                     '˂' | '˃' | '˄' | '˅' => river += 1,
-                    '≈' | '~' => water += 1,
+                    '≈' | '≋' | '~' => water += 1,
                     _ => {}
                 }
             }
@@ -916,6 +990,49 @@ mod tests {
             "biome diversity too low: {} kinds",
             kinds.len()
         );
+    }
+
+    #[test]
+    fn lowlands_keep_a_biome_mix() {
+        // Biome-round lock (2026-10-14): `m > 0.05` painted forest on
+        // any trace of water — grass went extinct by 3000 ticks and
+        // cold barren ground drew as woodland. The default world must
+        // keep forest, open grass/tundra, and a dry hot ring together.
+        let mut t = test_sim(7, 100, 40);
+        for _ in 0..3000 {
+            t.tick();
+        }
+        let mut renderer = Renderer::new();
+        let (mut land, mut forest, mut open, mut dry) =
+            (0usize, 0usize, 0usize, 0usize);
+        for y in 1..40 {
+            for x in 0..100 {
+                let (ch, _) = renderer.classify(&t, x, y);
+                match ch {
+                    '≈' | '≋' | '~' => continue,
+                    '♣' | '♠' | '§' => forest += 1,
+                    '"' | '\'' | '˙' | '`' | '¸' => open += 1,
+                    ';' | ':' | '∴' | '∵' | '∷' => dry += 1,
+                    _ => {}
+                }
+                land += 1;
+            }
+        }
+        let pct = |v: usize| 100.0 * v as f32 / land as f32;
+        eprintln!(
+            "BIOMES land {land}: forest {:.0}% open {:.0}% dry {:.0}%",
+            pct(forest),
+            pct(open),
+            pct(dry)
+        );
+        assert!(pct(forest) > 15.0, "forests collapsed: {:.0}%", pct(forest));
+        assert!(
+            pct(forest) < 60.0,
+            "forest monoculture: {:.0}%",
+            pct(forest)
+        );
+        assert!(pct(open) > 5.0, "grass/tundra extinct: {:.0}%", pct(open));
+        assert!(pct(dry) > 2.0, "no savanna/desert ring: {:.0}%", pct(dry));
     }
 
     #[test]

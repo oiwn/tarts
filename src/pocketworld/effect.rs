@@ -11,10 +11,17 @@ use derive_builder::Builder;
 use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
-#[derive(Builder, Default, Debug, Clone, Serialize, Deserialize)]
+/// Missing config keys fall back to the builder defaults (container
+/// `serde(default)` + a builder-backed `Default`): a `[pocketworld]`
+/// section without `seed` used to fail to load, and the derived
+/// `Default` rolled seed 0 instead of the boot world.
+#[derive(Builder, Debug, Clone, Serialize, Deserialize)]
 #[builder(public, setter(into))]
+#[serde(default)]
 pub struct PocketWorldOptions {
-    #[builder(default = "42")]
+    /// World seed. Default 7 (user, 2026-10-14): a wide-continent world
+    /// with jungle coasts, savanna rings, and dry interiors.
+    #[builder(default = "7")]
     pub seed: u32,
     /// Base frequency of the continent-scale field (lower = bigger landmasses).
     #[builder(default = "0.022")]
@@ -36,10 +43,17 @@ pub struct PocketWorldOptions {
     pub warp_scale: f64,
     /// Simulation layers to skip at runtime (empty = all on). This is
     /// groundwork for perf work, not a display control — layer cycling
-    /// stays on the `l`/`k` keys.
-    #[serde(default)]
+    /// stays on the `j`/`k` keys.
     #[builder(default)]
     pub disabled: Vec<SimLayer>,
+}
+
+impl Default for PocketWorldOptions {
+    fn default() -> Self {
+        PocketWorldOptionsBuilder::default()
+            .build()
+            .expect("every PocketWorldOptions field has a builder default")
+    }
 }
 
 pub struct PocketWorld {
@@ -174,6 +188,17 @@ impl DefaultOptions for PocketWorld {
 mod tests {
     use super::*;
     use crate::pocketworld::render::Layer;
+
+    #[test]
+    fn config_section_may_omit_keys() {
+        // A user's `[pocketworld]` section without `seed`/`disabled`
+        // must load with the builder defaults (seed 7, all layers on).
+        let opts: PocketWorldOptions = toml::from_str("scale = 0.03").unwrap();
+        assert_eq!(opts.seed, 7);
+        assert!(opts.disabled.is_empty());
+        assert_eq!(opts.scale, 0.03);
+        assert_eq!(PocketWorldOptions::default().seed, 7);
+    }
 
     fn pocketworld(seed: u32, w: usize, h: usize) -> PocketWorld {
         let options = PocketWorldOptionsBuilder::default()

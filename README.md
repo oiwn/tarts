@@ -27,7 +27,7 @@ providing stunning visual effects.
 - 🔥 **Fire**: A cozy fireplace effect to warm up your terminal
 - ⚡ **Plasma**: Electric plasma effect with vibrant colors and smooth animations
 - ✨ **Constellation**: Drifting stars that connect with dotted lines and twinkle
-- 🗺️ **Terrain**: A living world map — rivers, rain, erosion and seasons simulated in real time (tectonics and fire arrive in a later phase)
+- 🗺️ **Pocketworld**: A living world map — drifting plates, rivers and lakes, weather, seasons, forests and wildfire simulated in real time
 - 🎯 **Blank**: Simple blank screen with minimal resource usage
 
 ## 🚀 Installation

@@ -6,7 +6,7 @@
 //! divergent → rift subsidence, transform → earthquake jolts. Interiors
 //! are stable cratons — deformation only at edges.
 
-use crate::pocketworld::world::{World, sample_bilinear};
+use crate::pocketworld::world::World;
 use rand::RngExt;
 use rand::rngs::StdRng;
 
@@ -29,6 +29,12 @@ const PLATE_RIFT: f32 = 0.00175;
 /// Boundary deformation spreads over this Euclidean radius with a
 /// smoothstep bell — round stamps, no square corners.
 const DEFORM_RADIUS: f32 = 2.7;
+/// Relief (above sea) where uplift efficiency reaches zero — the soft
+/// summit limit. World gen maps land into ~[0, 0.42]; orogens may
+/// build somewhat above the generated high country.
+const RELIEF_MAX: f32 = 0.5;
+/// Spatial frequency of the uplift ridge texture (peaks ~5-8 cells apart).
+const RIDGE_SCALE: f64 = 0.15;
 /// Plate-margin meander: sample positions wander this many cells of
 /// low-frequency noise in the Voronoi, so margins curve instead of
 /// running ruler-straight between seeds.
@@ -65,14 +71,19 @@ pub(crate) const PLATE_CONV_T: f32 = 0.004;
 const QUAKE_CHANCE: f64 = 0.00005;
 const QUAKE_JOLT: f32 = 0.02;
 
-/// A lithospheric plate: its seed position and slow drift velocity.
-/// A lithospheric plate: its seed position and slow drift velocity.
+/// A lithospheric plate: its seed position, slow drift velocity, and
+/// the crust's sub-cell travel not yet applied by advection.
 #[derive(Clone, Copy)]
 pub(crate) struct Plate {
     pub(crate) x: f32,
     pub(crate) y: f32,
     pub(crate) dx: f32,
     pub(crate) dy: f32,
+    /// Fractional crust displacement carried between advections.
+    pub(crate) carry: (f32, f32),
+    /// Whole-cell crust shift applied by the last advection (springs
+    /// ride the same shift).
+    pub(crate) shift: (i32, i32),
 }
 
 /// A mantle plume: FIXED in the mantle, forever. The plates slide over
@@ -100,6 +111,10 @@ pub(crate) struct Tectonics {
     volcanic: Vec<f32>,
     /// Mantle plumes, seeded mid-latitudes at world gen.
     pub(crate) hotspots: Vec<Hotspot>,
+    /// Source cell of each cell in the last crust advection (empty when
+    /// the last refresh moved nothing) — other layers carry their
+    /// crust-attached memories through the same map.
+    pub(crate) gather: Vec<u32>,
 }
 
 impl Tectonics {
@@ -111,6 +126,7 @@ impl Tectonics {
             activity: vec![0.0; cells],
             volcanic: vec![0.0; cells],
             hotspots: Vec::new(),
+            gather: Vec::new(),
         }
     }
 
@@ -126,6 +142,8 @@ impl Tectonics {
                 y: rng.random_range(0.0..height_f),
                 dx: ang.cos() * PLATE_DRIFT,
                 dy: ang.sin() * PLATE_DRIFT * 0.5,
+                carry: (0.0, 0.0),
+                shift: (0, 0),
             });
         }
         self.refresh_plates(world);
@@ -197,8 +215,13 @@ impl Tectonics {
                     let factor = orogen(world, a, b);
                     if conv > PLATE_CONV_T {
                         // Convergent: uplift both sides of the edge,
-                        // spread over the deformation kernel.
-                        let lift = PLATE_UPLIFT * conv / PLATE_DRIFT * factor;
+                        // spread over the deformation kernel. Ridged
+                        // noise along the front gives the belt peaks
+                        // and passes — a uniform stamp built a smooth
+                        // berm that read as a dome.
+                        let lift = PLATE_UPLIFT * conv / PLATE_DRIFT
+                            * factor
+                            * ridge_texture(world, x, y);
                         land_delta += self.deform(world, x, y, lift, false);
                         land_delta +=
                             self.deform(world, nx, ny as usize, lift, false);
@@ -212,10 +235,8 @@ impl Tectonics {
                         // Transform shear: quake jolt on the boundary.
                         let jolt = QUAKE_JOLT
                             * if rng.random::<f64>() < 0.5 { 1.0 } else { -1.0 };
-                        world.elevation[i] =
-                            (world.elevation[i] + jolt).clamp(0.0, 1.0);
-                        world.elevation[j] =
-                            (world.elevation[j] + jolt).clamp(0.0, 1.0);
+                        world.elevation[i] = (world.elevation[i] + jolt).max(0.0);
+                        world.elevation[j] = (world.elevation[j] + jolt).max(0.0);
                     }
                 }
             }
@@ -296,7 +317,20 @@ impl Tectonics {
                 // rose +0.42 over 900 ticks at the old 0.15 gate).
                 let crust = if magma || land { 1.0 } else { 0.04 };
                 let before = world.elevation[i];
-                world.elevation[i] = (before + delta * w * crust).clamp(0.0, 1.0);
+                // Uplift fades with height instead of hitting a wall: a
+                // hard 1.0 clamp parked every orogen's summit on one
+                // elevation — the runtime plateau (2026-10-14: the top
+                // 15% of land sat at the cap, the rock tier was
+                // unreachable). With no limit at all, relief ran away
+                // (maxrel 9, sea level adrift). The fade gives each
+                // belt its own equilibrium height against isostasy and
+                // erosion, so summits spread instead of stacking.
+                let fade = if delta > 0.0 {
+                    (1.0 - (before - world.sea_level) / RELIEF_MAX).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                world.elevation[i] = (before + delta * w * crust * fade).max(0.0);
                 if land {
                     land_delta += world.elevation[i] - before;
                 }
@@ -338,23 +372,42 @@ impl Tectonics {
         for (e, a) in world.elevation.iter_mut().zip(self.activity.iter()) {
             let rel = *e - world.sea_level;
             if rel > 0.0 {
-                *e = (*e + share * rel * a).clamp(0.0, 1.0);
+                *e = (*e + share * rel * a).max(0.0);
             }
         }
     }
 
     /// The crust rides the plates: elevation and its activity memory
-    /// are carried by each cell's plate velocity (semi-Lagrangian
-    /// gather, bilinear, wrap on x). Continents travel and keep their
-    /// outlines, ranges ride along after their boundary moves on
-    /// (Appalachian behavior), and the fixed mantle plumes leave true
-    /// age-progressive trails as the plates slide over them. The
-    /// repeated resampling also rounds corners out of boundary-built
-    /// features over time.
+    /// are carried by each cell's plate velocity (wrap on x).
+    /// Continents travel and keep their outlines, ranges ride along
+    /// after their boundary moves on (Appalachian behavior), and the
+    /// fixed mantle plumes leave true age-progressive trails as the
+    /// plates slide over them.
+    ///
+    /// The gather is lossless: each plate banks its sub-cell travel and
+    /// the crust moves by whole cells only. The old bilinear gather at
+    /// ~0.6-cell offsets was a low-pass filter applied every refresh —
+    /// probed 2026-10-14: each advection cut land roughness by 15× what
+    /// all other ticks rebuilt, smearing ranges into domes (rock tier
+    /// 2.2% @300 → 0% @1500).
     fn advect(&mut self, world: &mut World) {
         let w = world.w;
         let h = world.h;
         let dt = PLATE_REFRESH as f32;
+        for p in &mut self.plates {
+            p.carry.0 += p.dx * dt;
+            p.carry.1 += p.dy * dt;
+            let sx = p.carry.0.round();
+            let sy = p.carry.1.round();
+            p.carry.0 -= sx;
+            p.carry.1 -= sy;
+            p.shift = (sx as i32, sy as i32);
+        }
+        self.gather.clear();
+        if self.plates.iter().all(|p| p.shift == (0, 0)) {
+            return;
+        }
+        self.gather.resize(w * h, 0);
         let src = world.elevation.clone();
         let act = self.activity.clone();
         let vol = self.volcanic.clone();
@@ -362,12 +415,15 @@ impl Tectonics {
         for y in 0..h {
             for x in 0..w {
                 let i = y * w + x;
-                let p = self.plates[self.plate[i] as usize];
-                let sx = x as f32 - p.dx * dt;
-                let sy = y as f32 - p.dy * dt;
-                world.elevation[i] = sample_bilinear(&src, w, h, sx, sy);
-                self.activity[i] = sample_bilinear(&act, w, h, sx, sy);
-                self.volcanic[i] = sample_bilinear(&vol, w, h, sx, sy);
+                let (sx, sy) = self.plates[self.plate[i] as usize].shift;
+                let gx = (x as isize - sx as isize).rem_euclid(w as isize) as usize;
+                let gy =
+                    (y as isize - sy as isize).clamp(0, h as isize - 1) as usize;
+                let j = gy * w + gx;
+                self.gather[i] = j as u32;
+                world.elevation[i] = src[j];
+                self.activity[i] = act[j];
+                self.volcanic[i] = vol[j];
             }
         }
         // Renormalize only THIS step's error: the bilinear gather
@@ -385,6 +441,25 @@ impl Tectonics {
             }
         }
     }
+}
+
+/// Uplift texture along convergent fronts, in [0.3, 1.5]: ridged noise
+/// fixed in the mantle frame, so migrating fronts sweep across peaks
+/// and saddles. Cylinder-sampled (seamless x-wrap).
+fn ridge_texture(world: &World, x: usize, y: usize) -> f32 {
+    let radius = world.w as f64 / std::f64::consts::TAU;
+    let theta = x as f64 / radius;
+    let (s, c) = theta.sin_cos();
+    let n = world.noise.octave_noise_3d(
+        radius * c + 913.1,
+        y as f64,
+        radius * s + 41.7,
+        2,
+        0.5,
+        RIDGE_SCALE,
+    );
+    let ridged = (1.0 - n.abs()) as f32;
+    0.3 + 1.2 * ridged * ridged
 }
 
 /// Per-plate-pair orogen intensity: slow deterministic noise in
@@ -455,6 +530,48 @@ impl Tectonics {
 #[cfg(test)]
 mod tests {
     use crate::pocketworld::sim::test_sim;
+
+    #[test]
+    fn rock_tier_stays_reachable_and_relief_bounded() {
+        // Mountain-round lock (2026-10-14). Two failure modes: a hard
+        // elevation ceiling parked the top 15% of land on one value,
+        // so the rock percentile sat at the cap and the rock tier
+        // (entry margin above it) was unreachable; with no limit,
+        // relief ran away (maxrel 9). After a long run, mid-latitude
+        // land must clear the rock entry and relief must stay sane.
+        for seed in [7u32, 42] {
+            let mut t = test_sim(seed, 100, 40);
+            for _ in 0..1500 {
+                t.tick();
+            }
+            let (w, h) = (t.world.w, t.world.h);
+            let rl = t.world.rock_level;
+            let entry = rl + ((rl - t.world.scree_level) * 0.3).max(0.01);
+            let (mut land, mut rock) = (0usize, 0usize);
+            for y in 0..h {
+                let lat = ((y as f32 + 0.5) / h as f32 * 2.0 - 1.0).abs();
+                if lat >= 0.6 {
+                    continue;
+                }
+                for x in 0..w {
+                    let rel = t.world.elevation[y * w + x] - t.world.sea_level;
+                    if rel > 0.0 {
+                        land += 1;
+                        if rel > entry {
+                            rock += 1;
+                        }
+                    }
+                }
+            }
+            let maxrel = t.world.elevation.iter().cloned().fold(0.0f32, f32::max)
+                - t.world.sea_level;
+            eprintln!(
+                "ROCK seed {seed}: mid-lat land {land} rock {rock} maxrel {maxrel:.3}"
+            );
+            assert!(rock * 100 > land * 3, "no mid-latitude rock: {rock}/{land}");
+            assert!(maxrel < 0.7, "relief ran away: maxrel {maxrel}");
+        }
+    }
 
     #[test]
     fn tectonics_alone_moves_ground_visibly() {

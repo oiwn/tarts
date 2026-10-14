@@ -1,61 +1,34 @@
-# Project Overview
+# Agent Guide
 
-## Quick Reference
+Agent and dev rules only. User-facing CLI and install info live in `README.md`; architecture and gotchas live in `specs/overview.md`.
 
-`tarts` (Terminal Arts) - A collection of terminal-based screensavers written in Rust.
+## Dev Commands
 
-### Main Commands
 ```bash
-# Build
 cargo build --release
+cargo test --lib
 
-# Run effects
-tarts matrix      # Matrix digital rain
-tarts life        # Conway's Game of Life  
-tarts maze        # Maze generation
-tarts boids       # Boids flocking simulation
-tarts cube        # 3D cube rotation
-tarts crab        # ASCII crab animation
-tarts donut       # 3D donut rotation
-tarts pipes       # Pipe maze animation
-tarts plasma      # Plasma effect
-tarts fire        # Fire simulation
-tarts pocketworld # Living pocket world: rivers, rain, plates, seasons
+# Quality gate — run before handing work back (pre-commit uses -D warnings)
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+prek run --all-files   # fmt, clippy, tests, typos, gitleaks
 
-# Development
-cargo test        # Run tests
-cargo bench       # Run benchmarks
+# Headless render analysis — debug an effect without a TTY
+cargo run --release -- --analyze pocketworld --view height --frames 3000
+cargo run --release -- --analyze pocketworld --view biome --size 160x50 --dump
 
-# Headless render analysis (dev)
-tarts --analyze pocketworld --view height --frames 3000
-
-# Code Quality (run after changes)
-cargo fmt --check  # Check formatting
-cargo test --lib   # Run library tests
-cargo clippy       # Run linter
+# PTY smoke test — exit 0 = clean quit; script's pty reports 0x0 (degenerate-size test)
+(sleep 2; printf 'q') | timeout 8 script -q /dev/null target/release/tarts <effect>
 ```
 
-### Agent Rules
+## Agent Rules
 
 - Edit files only with a proper patch tool (e.g. `apply_patch` or an equivalent structured edit). Never rewrite files via ad-hoc scripts (python/sed one-liners) — silent partial rewrites are how bugs get in.
-- The pre-commit clippy gate is `-D warnings`: run `cargo clippy --all-targets -- -D warnings` before handing work back.
-
-### Installation Methods
-- **Homebrew**: `brew install oiwn/tap/tarts`
-- **Cargo**: `cargo install tarts`
-- **Manual**: Download from GitHub releases
-
-## Project Status
-- **Version**: 0.1.23
-- **Effects**: 12 working screensavers
-- **Platforms**: macOS (x86_64, arm64), Linux
-- **Homebrew**: Tap available and working
-
-## Current Focus
-Preparing for public release and Reddit announcement. See `specs/current_task.md` for detailed release preparation plan.
-
-## Architecture
-See `specs/overview.md` for detailed project architecture and technical overview.
+- Plain `cargo clippy` passing is not enough: the pre-commit gate is `cargo clippy --all-targets -- -D warnings`.
+- No `[package] version` bumps in PRs; releases are tag-push only (`specs/release.md`).
+- New effects need a GitHub issue first (README Contributing policy).
+- Don't create task files unless the user asks for one.
+- Each draft task needs the user's explicit approval before `advance`; never batch-implement on inferred approval.
 
 <!-- BEGIN specdev -->
 ## specdev
@@ -64,4 +37,3 @@ This project uses **specdev** (specification-driven development). Load the
 specdev skill when starting a session, continuing from specs, or picking up a
 task. Always read `specs/overview.md` and `specs/ctx.md` before coding.
 <!-- END specdev -->
-

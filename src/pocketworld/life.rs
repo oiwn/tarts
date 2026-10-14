@@ -15,6 +15,15 @@ use rand::rngs::StdRng;
 /// wet belt — target ≥25% of land at 3000 frames.
 const VEG_GROW: f32 = 0.0035;
 const VEG_DECAY: f32 = 0.0004;
+/// Moisture at which growth reaches full speed and dry decay vanishes.
+/// The biomass equilibrium crosses the canopy line near moisture 0.3:
+/// wetter ground grows forest, drier ground stays grass or savanna.
+const MOIST_FULL: f32 = 0.32;
+/// Biomass above which a lowland cell reads as forest canopy (render).
+pub(crate) const FOREST_VEG: f32 = 0.5;
+/// Temperature where growth starts (the boreal limit) — below freezing,
+/// so the cold belt carries taiga rather than bare ground.
+const TAIGA_TEMP: f32 = -0.2;
 /// Lightning ignition chance per raining cell with fuel; spread chance to a
 /// fueled neighbor per tick; burn-down rate. Lowered 2026-10-14 (look
 /// 2b): aquifer moisture tripled the fuel base, and the old rates
@@ -120,8 +129,11 @@ impl Life {
             // the fuel threshold, or the whole grass belt slowly
             // saturates into tinder and one ignition torches a region
             // (the 2026-10-14 ash storms). Wet cells decay at the
-            // base rate — forests keep growing to full canopy.
-            let moist_f = (moist * 8.0).clamp(0.0, 1.0);
+            // base rate — forests keep growing to full canopy. The
+            // moisture response saturates at `MOIST_FULL`: at ×8 it
+            // saturated at 0.125, every warm lowland (p10 moisture
+            // 0.17) grew full canopy, and grass went extinct.
+            let moist_f = (moist / MOIST_FULL).clamp(0.0, 1.0);
             let decay = VEG_DECAY * (1.0 + 12.0 * (1.0 - moist_f));
             let mut neighbors = 0.0f32;
             {
@@ -138,9 +150,11 @@ impl Life {
                     }
                 }
             }
+            // Warmth response reaches below freezing: boreal forest
+            // (taiga) grows in the cold belt; only true tundra is bare.
             let grow = VEG_GROW
-                * (moist * 8.0).clamp(0.0, 1.0)
-                * (temp * 2.0).clamp(0.0, 1.0)
+                * moist_f
+                * ((temp - TAIGA_TEMP) * 2.0).clamp(0.0, 1.0)
                 * (1.0 + 0.5 * neighbors / 4.0)
                 * if self.fire[i] == ASH { 2.0 } else { 1.0 };
             self.vegetation[i] =

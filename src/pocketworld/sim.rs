@@ -25,6 +25,9 @@ const TIME_STEP: f64 = 0.033;
 /// Eustasy cadence: the sea relaxes toward its target fraction of the
 /// crust on this tick multiple.
 const EUSTASY_REFRESH: u32 = 90;
+/// Fraction of the way the biome thresholds move toward their fresh
+/// percentiles per eustasy refresh.
+const THRESHOLD_RELAX: f32 = 0.15;
 
 /// Toggleable simulation layers. `PocketWorldOptions::disabled` names the
 /// ones to skip; every layer runs by default. `Elevation` is not here:
@@ -109,8 +112,10 @@ impl Sim {
         self.climate.init_wind(&self.world);
         self.hydro.place_springs(&self.world);
         self.tectonics.generate(&self.world, &mut self.rng);
-        elevation::thresholds(&mut self.world);
+        elevation::thresholds(&mut self.world, 1.0);
         self.hydro.refresh_classification(&mut self.world);
+        self.hydro
+            .drainage(&self.world, &self.climate.humidity, &[]);
         self.hydro.init_aquifers(&mut self.world);
     }
 
@@ -118,6 +123,10 @@ impl Sim {
     /// tectonics, pipes, erosion — then the lazy classification.
     pub(crate) fn tick(&mut self) {
         self.world.time += TIME_STEP;
+        // The crust-advection cadence (tectonics shifts the crust on
+        // these ticks); the drainage network is rebuilt right after so
+        // rivers ride the terrain.
+        let crust_moved = self.world.tick % PLATE_REFRESH == 0;
         if self.enabled(SimLayer::Hydro) {
             self.hydro.drain(&mut self.world);
         }
@@ -142,7 +151,7 @@ impl Sim {
             self.tectonics.step(&mut self.world, &mut self.rng);
             // Springs ride their plate on the crust-advection cadence,
             // keeping headwaters on their drifting mountains.
-            if self.hydro.on && self.world.tick % PLATE_REFRESH == 0 {
+            if self.hydro.on && crust_moved {
                 self.hydro.ride_plates(&self.world, &self.tectonics);
             }
         }
@@ -167,12 +176,24 @@ impl Sim {
             self.world.sea_level += (target - self.world.sea_level) * 0.1;
             // Biome thresholds ride the same refresh: the render ramp
             // and rock strength key off the living distribution, not
-            // the boot-time one.
-            elevation::thresholds(&mut self.world);
+            // the boot-time one. They relax like the sea does, so the
+            // rock line drifts instead of jumping.
+            elevation::thresholds(&mut self.world, THRESHOLD_RELAX);
         }
         if self.enabled(SimLayer::Hydro) {
             self.hydro.charge_aquifers(&mut self.world);
             self.hydro.classify_if_due(&mut self.world);
+            if crust_moved {
+                // The network's memory rides the same crust shift (only
+                // when tectonics actually ran this refresh).
+                let gather: &[u32] = if self.enabled(SimLayer::Tectonics) {
+                    &self.tectonics.gather
+                } else {
+                    &[]
+                };
+                self.hydro
+                    .drainage(&self.world, &self.climate.humidity, gather);
+            }
         }
     }
 }

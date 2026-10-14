@@ -23,7 +23,11 @@ const MAX_DIM: u16 = 1000;
 /// Snapshots taken across the run for the change-rate stat.
 const SAMPLES: usize = 10;
 
-/// One analysis run. Default: 1000 frames, seed 42, the effect's
+/// Default analysis seed — pocketworld's boot world. Recorded seed-42
+/// baselines stay reproducible with `--seed 42`.
+pub const DEFAULT_SEED: u32 = 7;
+
+/// One analysis run. Default: 1000 frames, seed 7, the effect's
 /// first view, no dump, 100x40 canvas.
 #[derive(Debug)]
 pub struct AnalysisOptions {
@@ -39,7 +43,7 @@ impl Default for AnalysisOptions {
     fn default() -> Self {
         Self {
             frames: 1000,
-            seed: 42,
+            seed: DEFAULT_SEED,
             view: None,
             dump: false,
             width: DEFAULT_WIDTH,

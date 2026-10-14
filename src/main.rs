@@ -113,7 +113,7 @@ fn main() -> Result<(), error::TartsError> {
             process::exit(1);
         }
         let frames = args.frames.unwrap_or(1000);
-        let seed = args.seed.unwrap_or(42);
+        let seed = args.seed.unwrap_or(analyze::DEFAULT_SEED);
         let (width, height) = args
             .size
             .unwrap_or((analyze::DEFAULT_WIDTH, analyze::DEFAULT_HEIGHT));
@@ -381,9 +381,9 @@ fn print_help() {
     println!(
         "        --analyze <EFFECT>   Headless render analysis: glyph census + change rate"
     );
-    println!("        --seed <NUM>         Seed for --analyze (default 42)");
+    println!("        --seed <NUM>         Seed for --analyze (default 7)");
     println!(
-        "        --view <NAME>        View for --analyze (pocketworld: biome/plates/height/hydro/temp/wind/humidity)"
+        "        --view <NAME>        View for --analyze (pocketworld: biome/plates/height/hydro/temp/wind/humidity/aquifer)"
     );
     println!("        --print-config       Print default config as TOML to stdout");
     println!();

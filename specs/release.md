@@ -36,7 +36,7 @@ Manual `gh release create` / `cargo publish` are no longer part of the flow.
 
 ```bash
 cd /path/to/homebrew-tap
-just update-tarts 0.1.25
+just update-tarts <version>
 
 # Verify locally
 brew install --build-from-source ./tarts.rb
@@ -44,7 +44,7 @@ brew test tarts
 
 # Commit and push
 git add tarts.rb
-git commit -m "tarts: update to 0.1.25"
+git commit -m "tarts: update to <version>"
 git push origin main
 ```
 

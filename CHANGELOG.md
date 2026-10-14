@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.27] - 2026-10-14
+
+Release summary. Per-task entries below hold the details.
+
+### Added
+- **Pocketworld effect** (`tarts pocketworld`, replaces `terrain`): drifting tectonic plates and mountain ranges, rivers and lakes, weather and seasons, groundwater-fed biomes, fire; 8 layer views (`j`/`k`) and a legend page (`l`).
+- `--analyze` dev mode: headless render report per effect/view, with `--view`, `--frames`, `--size WxH`, `--dump`.
+
+### Fixed
+- `tarts life` no longer panics on resize (#80).
+- No panics or hangs on 0x0/1x1 terminals (#94).
+- Security: crossbeam-epoch RUSTSEC-2026-0204 via deps update.
+
+### Changed
+- Releases are tag-push only (`v*`); CI adds weekly deps audit.
+- README: new effects need an issue first.
+
+## 2026-10-14 — revival session (ctx archive)
+
+- Session book closed: deps, CI, tag releases, size/reset fixes, contributing policy, analyzer, pocketworld — tasks 0001–0006, 0008, 0010 (entries below).
+- Upstream specdev issues filed: #15 (ctx header not checked), #16 (`task scope rm` undocumented), #17 (no human approve step out of draft), #18 (quality limits vs umbrella tasks), #19 (agents create tasks for trivial fixes; local rule now in AGENTS.md).
+- Agent process lessons now live in AGENTS.md Agent Rules (patch tool only; explicit per-task draft approval).
+
+## 2026-10-14 — terrain dynamic world
+
+- Pocketworld: a living pocket world — drifting plates with lossless crust advection and real mountain ranges, a drainage network of rivers and lakes, weather, cryosphere, groundwater-fed forests, taiga, grassland and savanna/desert rings, fire; 8 layer views, legend page, seed 7 boot world, analyzer-verified.
+- Task `0006-terrain-dynamic-world`; source: https://github.com/oiwn/tarts/issues/93
+
 ## 2026-10-13 — effect analyzer
 
 - `--analyze`: headless one-effect/one-view render report (glyph census + change rate) for every effect; pocketworld's 7 views exposed via new `views()`/`set_view()` trait defaults. Fix rounds added `--dump` (whole final frame as glyphs) and `--size WxH` (canvas override, default 100x40), both from user remarks.
