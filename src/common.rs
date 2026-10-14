@@ -26,6 +26,17 @@ pub trait TerminalEffect {
     fn update_size(&mut self, width: u16, height: u16);
     /// Reset effect, i think it's useful in case of size/options update
     fn reset(&mut self);
+    /// Non-exit key press. Default: ignore. Effects that want display
+    /// controls (e.g. terrain's layer cycling) override this.
+    fn handle_key(&mut self, _key: event::KeyEvent) {}
+    /// Renderable screens this effect exposes. Most effects have
+    /// exactly one — their default screen.
+    fn views(&self) -> Vec<&'static str> {
+        vec!["default"]
+    }
+    /// Switch the active view to a name from `views`. Default: no-op —
+    /// single-view effects have nothing to switch.
+    fn set_view(&mut self, _name: &str) {}
 }
 
 pub fn process_input<TE>(effect: &mut TE) -> Result<bool>
@@ -34,26 +45,21 @@ where
 {
     while event::poll(Duration::from_millis(10))? {
         match event::read()? {
-            event::Event::Key(keyevent) => match keyevent {
-                event::KeyEvent {
-                    code: event::KeyCode::Char('q'),
-                    ..
-                }
-                | event::KeyEvent {
-                    code: event::KeyCode::Esc,
-                    ..
-                }
-                | event::KeyEvent {
-                    code: event::KeyCode::Char('c'),
-                    modifiers: event::KeyModifiers::CONTROL,
-                    ..
-                } => return Ok(false),
+            event::Event::Key(event::KeyEvent {
+                code: event::KeyCode::Char('q') | event::KeyCode::Esc,
+                ..
+            })
+            | event::Event::Key(event::KeyEvent {
+                code: event::KeyCode::Char('c'),
+                modifiers: event::KeyModifiers::CONTROL,
+                ..
+            }) => return Ok(false),
 
-                _ => {}
-            },
+            event::Event::Key(key) => effect.handle_key(key),
 
             event::Event::Resize(new_width, new_height) => {
-                effect.update_size(new_width, new_height);
+                // clamp degenerate sizes (issue #94) before the effect resets
+                effect.update_size(new_width.max(1), new_height.max(1));
                 effect.reset();
             }
 

@@ -136,8 +136,15 @@ impl TerminalEffect for ConwayLife {
 
         // generate new cells, if cell already present, skip
         for _ in 0..9 {
-            // Inserting glider at a random position with random rotation
+            // Inserting glider at a random position with random rotation.
+            // Skip entirely on screens too small to fit one (issue #94):
+            // the sampling ranges below are empty below 5 cols/rows.
             let glider_size = 3;
+            if self.buffer.width <= glider_size + 1
+                || self.buffer.height <= glider_size + 1
+            {
+                break;
+            }
             let x = self
                 .rng
                 .random_range(2..self.buffer.width - glider_size + 1);
@@ -155,7 +162,9 @@ impl TerminalEffect for ConwayLife {
     }
 
     fn reset(&mut self) {
-        todo!();
+        // Rebuild the simulation from scratch. Issue #80: this was todo!(),
+        // so every terminal resize panicked the effect.
+        *self = Self::new(self.options.clone(), self.screen_size);
     }
 }
 
@@ -167,8 +176,8 @@ impl ConwayLife {
         let mut cells = HashMap::new();
         for _ in 0..options.initial_cells {
             let lc = LifeCell::new('*');
-            let x = rng.random_range(0..screen_size.0) as usize;
-            let y = rng.random_range(0..screen_size.1) as usize;
+            let x = rng.random_range(0..screen_size.0.max(1)) as usize;
+            let y = rng.random_range(0..screen_size.1.max(1)) as usize;
 
             cells.insert((x, y), lc);
         }
@@ -324,5 +333,42 @@ mod tests {
 
         let res = get_neighbors_by_index(&buf, buf.index_of(0, 0));
         assert_eq!(res.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod reset_tests {
+    use super::*;
+    use crate::common::TerminalEffect;
+
+    fn options() -> ConwayLifeOptions {
+        ConwayLifeOptionsBuilder::default().build().unwrap()
+    }
+
+    #[test]
+    fn reset_rebuilds_a_populated_simulation() {
+        let mut life = ConwayLife::new(options(), (40, 12));
+        for _ in 0..5 {
+            life.update();
+            life.get_diff();
+        }
+        life.reset();
+        assert_eq!(life.current_gen, 0);
+        assert!(!life.cells.is_empty());
+
+        // resize path (issue #80): update_size + reset must not panic, even
+        // repeatedly and at degenerate sizes
+        life.update_size(0, 0);
+        life.reset();
+        life.update();
+        life.get_diff();
+
+        life.update_size(20, 5);
+        life.reset();
+        life.update();
+        life.get_diff();
+        life.reset();
+        life.update();
+        assert!(life.current_gen > 0 || !life.cells.is_empty());
     }
 }

@@ -1,17 +1,19 @@
 session_name: tarts
-shell_command_before: "export RUST_LOG=info; clear"
+environment:
+  RUST_LOG: info
+shell_command_before: "clear"
 windows:
   - window_name: code
+    start-directory: ./
+    panes:
+      - shell_command:
+        - hx
+  - window_name: agent
     focus: true
     start-directory: ./
     panes:
       - shell_command:
-        - helix
-  - window_name: agent
-    start-directory: ./
-    panes:
-      - shell_command:
-        - opencode
+        - herdr session stop tarts; herdr --session tarts
   - window_name: cmd1
     start-directory: ./
     panes:

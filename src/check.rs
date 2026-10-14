@@ -131,9 +131,17 @@ pub fn run_test_for_effect(effect_name: &str, frames: usize) -> Result<()> {
                 crate::butterfly::Butterfly::new(options, terminal::size()?);
             test_effect(&mut butterfly, frames)
         }
+        "pocketworld" => {
+            let options = crate::pocketworld::PocketWorldOptionsBuilder::default()
+                .build()
+                .unwrap();
+            let mut pocketworld =
+                crate::pocketworld::PocketWorld::new(options, terminal::size()?);
+            test_effect(&mut pocketworld, frames)
+        }
         _ => {
             println!(
-                "Unknown effect: {}. Available effects are: matrix, life, maze, constellation, butterfly",
+                "Unknown effect: {}. Available effects are: matrix, life, maze, constellation, butterfly, pocketworld",
                 effect_name
             );
             Ok(())

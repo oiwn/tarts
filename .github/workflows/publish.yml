@@ -1,54 +1,30 @@
 name: Publish to crates.io
 
+# Tag-driven only: pushing a vX.Y.Z tag publishes. Never fires on main pushes,
+# so a Cargo.toml version bump merged from a contributor PR cannot publish.
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'Cargo.toml'
+    tags:
+      - 'v*'
 
 jobs:
-  check-version:
-    runs-on: ubuntu-latest
-    outputs:
-      should_publish: ${{ steps.compare_versions.outputs.should_publish }}
-
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Fetch all history for comparing versions
-
-    - name: Compare versions
-      id: compare_versions
-      run: |
-        # Get the current version from Cargo.toml
-        CURRENT_VERSION=$(grep '^version = ' Cargo.toml | cut -d '"' -f 2)
-        echo "Current version: $CURRENT_VERSION"
-
-        # Get the previous version from the last commit
-        git checkout HEAD~1
-        PREVIOUS_VERSION=$(grep '^version = ' Cargo.toml | cut -d '"' -f 2)
-        echo "Previous version: $PREVIOUS_VERSION"
-
-        # Compare versions
-        if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-          echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
-          echo "should_publish=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "Version unchanged"
-          echo "should_publish=false" >> "$GITHUB_OUTPUT"
-        fi
-
   publish:
-    needs: check-version
-    if: needs.check-version.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Verify tag matches Cargo.toml version
+      run: |
+        CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n1 | cut -d '"' -f 2)
+        TAG_VERSION="${GITHUB_REF_NAME#v}"
+        echo "Cargo.toml: $CURRENT_VERSION  Tag: $TAG_VERSION"
+        if [ "$CURRENT_VERSION" != "$TAG_VERSION" ]; then
+          echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $CURRENT_VERSION" >&2
+          exit 1
+        fi
 
     - name: Check if package is publishable
       run: cargo publish --dry-run --allow-dirty

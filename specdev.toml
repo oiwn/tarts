@@ -1,0 +1,47 @@
+# specdev project config.
+
+[task]
+# Sections every task file must have; `task new` creates them.
+required_sections = ["Plan", "Acceptance"]
+optional_sections = ["Summary", "Manual checks", "Context", "Findings", "Review", "Spec updates"]
+# Project-specific optional frontmatter fields.
+extra_fields = []
+
+[pipeline]
+# Failed verifies (verify → fix) before a task is blocked; revisions don't count.
+max_attempts = 3
+
+[acceptance]
+# Acceptance items every task gets, e.g. ["cargo test"]. specdev never runs them.
+default = ["cargo fmt --check", "cargo test --lib", "cargo clippy"]
+
+[scope]
+# Globs never flagged as out of scope, e.g. ["Cargo.lock"]. specs/ is always allowed.
+always_allowed = []
+
+[quality]
+# Threshold violations are warnings; true makes them errors.
+errors = false
+# Flag Markdown tables and ASCII box diagrams in specs/ and task files.
+forbid_tables = false
+
+# Per file kind. Keys: max_lines, max_words, max_plan_steps, max_scope.
+# Omitted keys keep these defaults; 0 turns a limit off.
+# max_words catches soft-wrapped files whose line count stays low.
+[quality.task]
+max_lines = 150
+max_words = 1000
+max_plan_steps = 8
+max_scope = 6
+
+[quality.ctx]
+max_lines = 120
+max_words = 600
+
+[quality.overview]
+max_lines = 200
+max_words = 1500
+
+[quality.changelog]
+max_lines = 400
+max_words = 3000

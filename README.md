@@ -27,6 +27,7 @@ providing stunning visual effects.
 - 🔥 **Fire**: A cozy fireplace effect to warm up your terminal
 - ⚡ **Plasma**: Electric plasma effect with vibrant colors and smooth animations
 - ✨ **Constellation**: Drifting stars that connect with dotted lines and twinkle
+- 🗺️ **Pocketworld**: A living world map — drifting plates, rivers and lakes, weather, seasons, forests and wildfire simulated in real time
 - 🎯 **Blank**: Simple blank screen with minimal resource usage
 
 ## 🚀 Installation
@@ -73,6 +74,7 @@ tarts fire     # Fire effect
 tarts plasma   # Electric plasma effect
 tarts constellation  # Drifting stars and dotted constellations
 tarts butterfly # Fluttering butterflies floating around
+tarts pocketworld # Living pocket world: rivers, rain, erosion, seasons, plates
 tarts blank    # Simple blank screen
 ```
 
@@ -96,11 +98,16 @@ cargo test
 
 # Benchmark performance
 cargo bench
+
+# Analyze what an effect renders — headless glyph census + change rate (dev)
+tarts --analyze pocketworld --view height --frames 3000
 ```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit pull requests, report bugs, and suggest features.
+Bug fixes and improvements are welcome! Please feel free to submit pull requests and report bugs.
+
+**New effects are not accepted without prior discussion.** Open an issue first so we can align on scope and design before any code is written.
 
 ## 📜 License
 
